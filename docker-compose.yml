@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tasktracker
+      POSTGRES_PASSWORD: tasktracker
+      POSTGRES_DB: tasktracker
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tasktracker -d tasktracker"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: runs `prisma migrate deploy` then exits. App waits for success.
+  migrate:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+      target: migrator
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://tasktracker:tasktracker@postgres:5432/tasktracker?schema=public
+
+  app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://tasktracker:tasktracker@postgres:5432/tasktracker?schema=public
+      AUTH_URL: ${AUTH_URL:-http://localhost:3000}
+      AUTH_SECRET: ${AUTH_SECRET}
+      AUTH_TRUST_HOST: "true"
+      TEAMS_FLOW_URL: ${TEAMS_FLOW_URL:-}
+      TEAMS_SHARED_SECRET: ${TEAMS_SHARED_SECRET:-}
+    ports:
+      - "3000:3000"
+
+volumes:
+  pgdata:

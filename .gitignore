@@ -1,0 +1,5 @@
+# Local tooling / not for the repo
+.gsd/
+.bg-shell/
+.mcp.json
+.claude/

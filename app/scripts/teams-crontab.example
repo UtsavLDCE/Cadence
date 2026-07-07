@@ -1,0 +1,15 @@
+# Microsoft Teams daily prompts — weekdays only (Mon–Fri).
+#
+# Install with:  crontab teams-crontab.example   (or paste these lines into `crontab -e`)
+# Adjust the absolute path to teams-cron.sh and the times for your timezone.
+# Cron uses the host clock — the "5 days" window is the Mon–Fri (1-5) field below.
+#
+# Required env (set here or in the script's environment):
+APP_URL=http://localhost:3000
+TEAMS_SHARED_SECRET=replace-with-the-same-secret-the-app-uses
+
+# Morning plan prompt — 9:00 AM, Monday through Friday
+0 9 * * 1-5  /absolute/path/to/app/scripts/teams-cron.sh morning >> /tmp/teams-cron.log 2>&1
+
+# End-of-day status prompt — 6:00 PM, Monday through Friday
+0 18 * * 1-5 /absolute/path/to/app/scripts/teams-cron.sh eod     >> /tmp/teams-cron.log 2>&1

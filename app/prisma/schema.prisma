@@ -1,0 +1,386 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  role          UserRole  @default(MEMBER)
+  teamId        String?
+  // When true, this user is hidden from the Insights team view. Admin-only toggle,
+  // meant for excluding managers/admins (or any user) from the productivity report.
+  excludedFromInsights Boolean @default(false)
+  createdAt     DateTime  @default(now())
+
+  accounts      Account[]
+  sessions      Session[]
+  team          Team?          @relation(fields: [teamId], references: [id])
+  managedTeams  Team[]         @relation("TeamManager")
+  standups      Standup[]
+  interruptions Interruption[]
+  dailyTasks    DailyTask[]
+  workLogs      WorkLog[]
+  queueItems    QueueItem[]
+  dayPlans      DayPlan[]
+  teamsPrompts  TeamsPrompt[]
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  name      String
+  managerId String?
+  createdAt DateTime @default(now())
+
+  manager User?  @relation("TeamManager", fields: [managerId], references: [id])
+  members User[]
+}
+
+model Standup {
+  id          String        @id @default(cuid())
+  userId      String
+  date        DateTime      @db.Date
+  submittedAt DateTime      @default(now())
+  items       StandupItem[]
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+}
+
+model StandupItem {
+  id        String          @id @default(cuid())
+  standupId String
+  type      StandupItemType
+  workType  WorkType        @default(FOCUS)
+  text      String          @db.Text
+  createdAt DateTime        @default(now())
+
+  standup Standup @relation(fields: [standupId], references: [id], onDelete: Cascade)
+}
+
+model Interruption {
+  id          String   @id @default(cuid())
+  userId      String
+  description String   @db.Text
+  loggedAt    DateTime @default(now())
+  date        DateTime @db.Date
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model DailyTask {
+  id             String     @id @default(cuid())
+  // Human-friendly sequential identifier, surfaced as "Task-{seq}" in the UI.
+  // Postgres serial backfills existing rows in creation order on migration.
+  seq            Int        @unique @default(autoincrement())
+  userId         String
+  date           DateTime   @db.Date
+  title          String     @db.Text
+  notes          String?    @db.Text
+  status         TaskStatus @default(TODO)
+  workType       WorkType   @default(FOCUS)
+  // Explicit "this was unplanned work" flag — the honest signal for the
+  // Firefighting metric, set when a task is logged through the ⚡ unplanned-work
+  // path. Replaces overloading workType=INTERRUPTION as the unplanned proxy;
+  // workType stays about the *nature* of the work (focus vs interruption),
+  // `unplanned` about whether it was on the plan. Old INTERRUPTION rows are
+  // backfilled to true so historical firefighting stays intact.
+  unplanned      Boolean    @default(false)
+  priority       Priority   @default(MEDIUM)
+  estimatedHours Float?
+  actualHours    Float?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  completedAt    DateTime?
+
+  // What kind of work this is (Meeting, Client Call, Cross-Team, R&D, …). Optional
+  // so existing/quick tasks stay uncategorized; the vocabulary is user-extensible
+  // (see TaskCategory). SetNull on delete so removing a category never orphans a row.
+  categoryId     String?
+  category       TaskCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  // Deferral audit trail. When a committed (submitted) task isn't finished and is
+  // pushed to a later day, the original row STAYS on its planned day with
+  // deferredToDate + a justification, so a day's planned-vs-achieved picture is
+  // preserved for the manager. A fresh carry-forward copy is created on the
+  // target day with deferredFromDate pointing back here.
+  deferredToDate   DateTime?      @db.Date
+  deferredFromDate DateTime?      @db.Date
+  deferralCause    DeferralCause?
+  deferralNote     String?        @db.Text
+
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  statusEvents TaskStatusEvent[]
+  // Dated time-entries for work spent on this task. A task can accumulate effort
+  // across many days (a long-running or multi-day task); each entry records the
+  // day the work happened, the hours, and an optional note. The task's
+  // `actualHours` is kept in sync as the SUM of these entries (see lib/worklog.ts),
+  // so all existing effort/insights math continues to read one field.
+  workLogs     WorkLog[]
+
+  // Free-form labels, many per task (implicit join table _DailyTaskToTag). Unlike
+  // category (one "kind of work" per task), tags are an open set the team layers on
+  // top — project names, clients, release themes — for cross-cutting filtering.
+  tags         Tag[]
+
+  @@index([userId, date])
+  @@index([userId, status])
+  @@index([categoryId])
+}
+
+// Free-form, user-extensible labels applied to tasks. Many-to-many with DailyTask:
+// a task carries any number of tags, and a tag spans many tasks. Global (team-wide)
+// and case-insensitively unique on name so the vocabulary stays shared rather than
+// fragmenting on spelling — same posture as TaskCategory, but multi-valued and
+// without the single "kind of work" semantics.
+model Tag {
+  id          String     @id @default(cuid())
+  name        String     @unique
+  createdById String?
+  createdAt   DateTime   @default(now())
+
+  tasks DailyTask[]
+}
+
+// User-extensible task categories — Meeting, Discussion, Client Call, the
+// Cross-Team variants (Support / Delivery / PMG), R&D, and whatever else the team
+// invents. Seeded with a default set on migration; any authenticated user can add
+// a new one from the task forms so the vocabulary grows with how work actually
+// happens. Categories are GLOBAL (team-wide), not per-user, so the /insights
+// "where time goes" roll-up aggregates cleanly instead of fragmenting on spelling.
+model TaskCategory {
+  id          String      @id @default(cuid())
+  name        String      @unique
+  // Optional grouping key for related categories, e.g. "CROSS_TEAM" clusters the
+  // Support / Delivery / PMG variants together in the UI.
+  kind        String?
+  // Seeded default vs. user-added. Lets the UI hint provenance and lets us protect
+  // the seeded set from deletion if a delete affordance is added later.
+  isDefault   Boolean     @default(false)
+  sortOrder   Int         @default(0)
+  createdById String?
+  createdAt   DateTime    @default(now())
+
+  tasks DailyTask[]
+
+  @@index([sortOrder])
+}
+
+// Append-only log of task status transitions. Recorded whenever a task's status
+// changes (including on create, where `from` is null). This is the source of
+// truth for leak signals the point-in-time status can't show:
+//   - cycle time: first IN_PROGRESS -> DONE
+//   - blocked time: cumulative duration spent in HOLD
+//   - rework/reopens: any transition out of DONE (from=DONE, to!=DONE)
+// Historical transitions before this table existed are unknowable, so metrics
+// derived from it accrue going forward.
+model TaskStatusEvent {
+  id     String      @id @default(cuid())
+  taskId String
+  // Denormalized so per-person aggregation needs no join back to DailyTask.
+  userId String
+  from   TaskStatus?
+  to     TaskStatus
+  at     DateTime    @default(now())
+
+  // Captured when a task is put on HOLD: why it's blocked and who/which team it's
+  // waiting on. `blockedOn` is the richest cross-team-dependency signal a task
+  // tracker can surface — waiting-on-another-team is a leak the raw status can't
+  // see. Both null for non-HOLD transitions.
+  note      String? @db.Text
+  blockedOn String?
+
+  task DailyTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([userId, to])
+}
+
+// A dated time-entry against a task. Append-only in spirit (entries are added and
+// removed, never mutated). Lets one task accumulate effort across multiple days
+// instead of forcing a per-day copy: work done today and tomorrow on the same
+// task lands as two WorkLog rows, and the task's actualHours is the sum. `date`
+// is the day the work happened (@db.Date, UTC midnight, matching DailyTask.date),
+// so insights can attribute hours to the day worked rather than the plan's date.
+model WorkLog {
+  id        String   @id @default(cuid())
+  taskId    String
+  // Denormalized owner so per-person effort roll-ups need no join back to the task.
+  userId    String
+  date      DateTime @db.Date
+  hours     Float
+  note      String?  @db.Text
+  createdAt DateTime @default(now())
+
+  task DailyTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([userId, date])
+}
+
+// Personal backlog of future work. Items have no date until promoted into a
+// DailyTask for today via /api/queue/:id/promote.
+model QueueItem {
+  id             String   @id @default(cuid())
+  userId         String
+  title          String   @db.Text
+  notes          String?  @db.Text
+  priority       Priority @default(MEDIUM)
+  estimatedHours Float?
+  position       Int      @default(0)
+  // When a manager/admin assigns this item to a member's queue, their user id is
+  // recorded here so the member can see it came from a lead (vs. self-added).
+  assignedById   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, position])
+}
+
+// One per user per day. Holds the day's single immutable "Goal of the day" and
+// the submission lock: once submittedAt is set, the day's task plan is frozen
+// (no add/remove/re-estimate) and the goal can no longer be changed. Tasks can
+// still update status/notes/actual effort and be moved to a future day.
+model DayPlan {
+  id          String    @id @default(cuid())
+  userId      String
+  date        DateTime  @db.Date
+  goal        String?   @db.Text
+  submittedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+}
+
+model AppSettings {
+  id          String   @id @default("singleton")
+  cutoffTime  String   @default("12:00")
+  timezone    String   @default("UTC")
+  updatedAt   DateTime @updatedAt
+
+  // Microsoft Teams per-person DM integration. Configured from the Admin →
+  // Integrations tab so no redeploy/env edit is needed. teamsEnabled gates the
+  // weekday dispatch (cron + "Send now"); teamsFlowUrl is the Power Automate HTTP
+  // trigger the portal POSTs cards to; teamsSharedSecret authenticates both
+  // directions of the bridge. Empty values fall back to the matching env vars.
+  teamsEnabled      Boolean @default(false)
+  teamsFlowUrl      String  @default("") @db.Text
+  teamsSharedSecret String  @default("") @db.Text
+}
+
+// Tracks each Microsoft Teams daily prompt the portal pushed to a member, per
+// day and phase (MORNING = plan goal + estimates, EOD = end-of-day status). One
+// row per (user, day, phase) gives idempotency (the weekday cron can't double-
+// send) and an auditable record of who was asked and who answered (respondedAt
+// is stamped when the member's reply is ingested back into the portal).
+model TeamsPrompt {
+  id          String      @id @default(cuid())
+  userId      String
+  date        DateTime    @db.Date
+  phase       PromptPhase
+  sentAt      DateTime    @default(now())
+  respondedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date, phase])
+  @@index([date, phase])
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  MEMBER
+}
+
+enum StandupItemType {
+  YESTERDAY
+  TODAY
+  BLOCKER
+}
+
+enum WorkType {
+  FOCUS
+  INTERRUPTION
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  HOLD
+  DONE
+}
+
+// Planning priority. Carries from a queue item into the day task when promoted,
+// so members can plan their day highest-priority-first. Managers set it when
+// assigning work; members can adjust their own.
+enum Priority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+// Why a committed task slipped to another day. Lets managers scan reasons at a
+// glance and spot patterns (chronic underestimation vs. constant interruptions).
+enum DeferralCause {
+  INTERRUPTED
+  UNDERESTIMATED
+  BLOCKED
+  DEPRIORITIZED
+  OTHER
+}
+
+// The two daily touchpoints the Teams integration drives.
+enum PromptPhase {
+  MORNING
+  EOD
+}
