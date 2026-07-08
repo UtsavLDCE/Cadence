@@ -1,4 +1,4 @@
-# Driftless — Setup Guide
+# Cadence — Setup Guide
 
 ## Prerequisites
 - Node.js 20+
@@ -8,7 +8,7 @@
 ## Azure AD Setup (Required for Login)
 
 1. Go to Azure Portal > Azure Active Directory > App Registrations > New Registration
-2. Name: "Driftless"
+2. Name: "Cadence"
 3. Redirect URI: `http://<your-vm-ip>:3000/api/auth/callback/microsoft-entra-id`
 4. After creating, note the **Application (client) ID** and **Directory (tenant) ID**
 5. Certificates & secrets > New client secret → copy the value immediately
@@ -16,7 +16,7 @@
 ## Local / VM Setup
 
 > **Note:** The Postgres role/database are named `tasktracker` throughout this guide.
-> These identifiers are deliberately left unchanged during the Driftless rebrand —
+> These identifiers are deliberately left unchanged during the Cadence rebrand —
 > they are internal infrastructure names (not user-visible) and renaming them would
 > require re-provisioning the database and rewriting `DATABASE_URL`.
 

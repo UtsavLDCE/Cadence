@@ -6,7 +6,7 @@ import { SessionProvider } from "@/components/session-provider";
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
 
 export const metadata: Metadata = {
-  title: "Driftless",
+  title: "Cadence",
   description: "Stay on the goal. Catch the drift.",
 };
 

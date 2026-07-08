@@ -33,7 +33,7 @@ export function NavBar({ user }: { user: User }) {
         <div className="flex items-center gap-6">
           <Link href="/dashboard" className="flex items-center gap-2 font-bold text-lg">
             <span className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center text-white text-sm">D</span>
-            <span className="text-gray-900">Driftless</span>
+            <span className="text-gray-900">Cadence</span>
           </Link>
           <nav className="flex gap-1">
             {links.map((link) => {

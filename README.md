@@ -1,4 +1,4 @@
-# Driftless
+# Cadence
 
 A team task-tracking and daily-standup app. Members log tasks, plan their day, and
 run async standups; managers get productivity insights across teams.
@@ -21,8 +21,8 @@ Built with **Next.js 16 (App Router)**, **React 19**, **Prisma 7 + PostgreSQL**,
 Requires Docker with Compose. Postgres, migrations, and the app all come up together.
 
 ```bash
-git clone https://github.com/UtsavLDCE/Driftless.git
-cd Driftless
+git clone https://github.com/UtsavLDCE/Cadence.git
+cd Cadence
 
 # Compose reads these from a .env at the repo root:
 cat > .env <<EOF
@@ -41,8 +41,8 @@ before the app starts. Postgres data persists in the `pgdata` volume.
 Requires **Node.js 20+** and a running **PostgreSQL 14+**.
 
 ```bash
-git clone https://github.com/UtsavLDCE/Driftless.git
-cd Driftless/app
+git clone https://github.com/UtsavLDCE/Cadence.git
+cd Cadence/app
 
 # 1. Database (run once) — role/db are named `tasktracker` by convention
 psql -U postgres -c "CREATE USER tasktracker WITH PASSWORD 'tasktracker' CREATEDB;"
