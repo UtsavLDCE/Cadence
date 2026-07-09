@@ -81,7 +81,7 @@ export function CategorySelect({
   const [busy, setBusy] = useState(false);
 
   const base =
-    "text-sm border border-gray-200 rounded-lg px-2 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#f4502e55]";
+    "text-sm border border-[#ece8e1] rounded-lg px-2 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#e0533a55]";
 
   async function submitNew() {
     const n = name.trim();
@@ -133,7 +133,7 @@ export function CategorySelect({
             setAdding(false);
             setName("");
           }}
-          className="text-xs text-gray-400 hover:text-gray-600 px-1 shrink-0"
+          className="text-xs text-[#b0a99e] hover:text-[#6b665f] px-1 shrink-0"
         >
           ✕
         </button>

@@ -1,20 +1,26 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f5f6f8;
-  --foreground: #1f2433;
+  --background: #f6f4f1;
+  --foreground: #1c1a17;
 
-  /* Coral accent (Motadata-style) */
-  --primary: #f4502e;
-  --primary-hover: #db3f20;
-  --primary-soft: #fdece7;
+  /* Coral accent */
+  --primary: #e0533a;
+  --primary-hover: #b83c26;
+  --primary-soft: #fdeee9;
 
-  /* Status palette */
-  --status-done: #2bb673;
-  --status-progress: #f5a623;
-  --status-hold: #9b7bd4;
-  --status-overdue: #f4502e;
-  --status-todo: #8a93a6;
+  /* Warm neutral surfaces */
+  --border: #ece8e1;
+  --border-soft: #f2eee7;
+  --muted: #9c968d;
+
+  /* Status palette (matches design system) */
+  --status-done: #3f8a5b;
+  --status-progress: #3a6ea5;
+  --status-hold: #6a5acd;
+  --status-overdue: #c0392b;
+  --status-warn: #c08a2d;
+  --status-todo: #9c9186;
 }
 
 @theme inline {
@@ -23,14 +29,26 @@
   --color-primary: var(--primary);
   --color-primary-hover: var(--primary-hover);
   --color-primary-soft: var(--primary-soft);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-border: var(--border);
+  --font-sans: var(--font-plex-sans);
+  --font-mono: var(--font-plex-mono);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--font-plex-sans), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: #fbd8cf;
+}
+
+/* Tabular monospace for numbers, IDs, times */
+.mono {
+  font-family: var(--font-plex-mono), ui-monospace, monospace;
+  font-feature-settings: "tnum";
 }
 
 /* Thin progress bar fill */

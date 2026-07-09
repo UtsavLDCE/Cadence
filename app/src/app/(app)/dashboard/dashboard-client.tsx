@@ -6,6 +6,7 @@ import Link from "next/link";
 import { formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { CategorySelect, useCategories, categoryName, type Category } from "@/components/category-select";
+import { ScopeToggle, type Scope } from "@/components/scope-toggle";
 import { TagInput, TagBadges, useTags, type Tag } from "@/components/tag-input";
 import {
   STATUS_META,
@@ -97,6 +98,7 @@ type Member = {
 
 type Props = {
   isManager: boolean;
+  scope?: Scope;
   todayIso: string;
   cutoffTime: string;
   myTasks: Task[];
@@ -105,12 +107,12 @@ type Props = {
   pendingTasks?: PendingTask[];
 };
 
-export function DashboardClient({ isManager, todayIso, cutoffTime, myTasks, myOverdue, members, pendingTasks = [] }: Props) {
+export function DashboardClient({ isManager, scope = "org", todayIso, cutoffTime, myTasks, myOverdue, members, pendingTasks = [] }: Props) {
   const todayLabel = formatDate(new Date(todayIso));
 
   if (!isManager) return <MemberView todayLabel={todayLabel} tasks={myTasks} overdue={myOverdue} />;
 
-  return <ManagerView todayLabel={todayLabel} todayIso={todayIso} cutoffTime={cutoffTime} members={members} pendingTasks={pendingTasks} />;
+  return <ManagerView todayLabel={todayLabel} todayIso={todayIso} cutoffTime={cutoffTime} members={members} pendingTasks={pendingTasks} scope={scope} />;
 }
 
 /* ---------------- Member ---------------- */
@@ -127,11 +129,11 @@ function MemberView({ todayLabel, tasks, overdue }: { todayLabel: string; tasks:
       <Header title="My Overview" subtitle={todayLabel} />
 
       {overBy > 0 && (
-        <div className="flex items-start gap-3 mb-5 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-4 py-3 text-sm">
+        <div className="flex items-start gap-3 mb-5 bg-[#fdf7ec] border border-[#f0e2c4] text-[#a8791f] rounded-xl px-4 py-3 text-sm">
           <span className="mt-0.5 text-base leading-none">⚠️</span>
           <div>
             <p className="font-semibold">You&apos;re overplanning.</p>
-            <p className="text-amber-700">
+            <p className="text-[#c08a2d]">
               {fmtHours(totalEstimate)} planned vs. a ~{WORKDAY_HOURS}h day — {fmtHours(overBy)} over. <Link href="/standup" className="underline">Trim your plan →</Link>
             </p>
           </div>
@@ -149,7 +151,7 @@ function MemberView({ todayLabel, tasks, overdue }: { todayLabel: string; tasks:
         <StatCard label="Planned today" value={String(tasks.length)} accent="#1f2433" />
         <StatCard label="Completed" value={`${done}/${tasks.length || 0}`} accent={STATUS_META.DONE.hex} />
         <StatCard label="In progress" value={String(counts.IN_PROGRESS)} accent={STATUS_META.IN_PROGRESS.hex} />
-        <StatCard label="Overdue" value={String(overdue.length)} accent="#f4502e" />
+        <StatCard label="Overdue" value={String(overdue.length)} accent="#e0533a" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -163,14 +165,14 @@ function MemberView({ todayLabel, tasks, overdue }: { todayLabel: string; tasks:
             <Empty text={<>No tasks planned. <Link href="/standup" className="text-primary hover:underline">Plan your day →</Link></>} />
           ) : (
             <div className="space-y-2">
-              <div className="h-2 rounded-full bg-gray-100 overflow-hidden mb-3">
-                <div className="h-full bar-fill bg-emerald-500" style={{ width: `${progress}%` }} />
+              <div className="h-2 rounded-full bg-[#f2eee7] overflow-hidden mb-3">
+                <div className="h-full bar-fill bg-[#3f8a5b]" style={{ width: `${progress}%` }} />
               </div>
               {tasks.map((t) => (
-                <div key={t.id} className="flex items-center gap-3 py-1.5 border-b border-gray-50 last:border-0">
+                <div key={t.id} className="flex items-center gap-3 py-1.5 border-b border-[#f6f4f1] last:border-0">
                   <span className={cn("w-2 h-2 rounded-full shrink-0", STATUS_META[t.status].dot)} />
-                  <p className={cn("text-sm flex-1 break-words", t.status === "DONE" ? "line-through text-gray-400" : "text-gray-800")}>{t.title}</p>
-                  <span className="text-xs text-gray-400 shrink-0">{fmtHours(t.estimatedHours)}</span>
+                  <p className={cn("text-sm flex-1 break-words", t.status === "DONE" ? "line-through text-[#b0a99e]" : "text-[#2c2925]")}>{t.title}</p>
+                  <span className="text-xs text-[#b0a99e] shrink-0">{fmtHours(t.estimatedHours)}</span>
                   <span className={cn("text-xs rounded px-2 py-0.5 shrink-0", STATUS_META[t.status].badge)}>{STATUS_META[t.status].label}</span>
                 </div>
               ))}
@@ -184,7 +186,7 @@ function MemberView({ todayLabel, tasks, overdue }: { todayLabel: string; tasks:
 
 /* ---------------- Manager ---------------- */
 
-function ManagerView({ todayLabel, todayIso, cutoffTime, members, pendingTasks }: { todayLabel: string; todayIso: string; cutoffTime: string; members: Member[]; pendingTasks: PendingTask[] }) {
+function ManagerView({ todayLabel, todayIso, cutoffTime, members, pendingTasks, scope }: { todayLabel: string; todayIso: string; cutoffTime: string; members: Member[]; pendingTasks: PendingTask[]; scope: Scope }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [view, setView] = useState<"board" | "list" | "done" | "pending">("board");
 
@@ -211,63 +213,93 @@ function ManagerView({ todayLabel, todayIso, cutoffTime, members, pendingTasks }
     : 0;
   const totalDeferred = members.reduce((s, m) => s + deferredCount(m), 0);
 
-  // Top assignees by load (today's task count)
-  const ranked = [...members].filter((m) => m.tasks.length > 0).sort((a, b) => b.tasks.length - a.tasks.length).slice(0, 6);
-  const maxLoad = ranked.length ? ranked[0].tasks.length : 1;
+  // Load bars use planned hours per member (the "Today's load by member" panel).
+  const loadRanked = [...members].sort((a, b) => plannedHours(b) - plannedHours(a));
+  const maxPlanned = loadRanked.reduce((mx, m) => Math.max(mx, plannedHours(m)), 0) || 1;
+
+  // Donut conic-gradient segments (cumulative %), matching the Legend order.
+  const donutTotal = allTasks.length || 1;
+  let acc = 0;
+  const donutStops = TASK_STATUSES.map((s) => {
+    const start = (acc / donutTotal) * 100;
+    acc += counts[s];
+    const end = (acc / donutTotal) * 100;
+    return `${STATUS_META[s].hex} ${start}% ${end}%`;
+  }).join(",");
 
   return (
-    <div>
-      <Header
-        title="Team Overview"
-        subtitle={`${todayLabel} · Cutoff ${cutoffTime}`}
-        right={
-          <div className="flex gap-2 text-sm">
-            <Pill tone="ok">{planned}/{members.length} planned</Pill>
-            {noPlan.length > 0 && <Pill tone="danger">{noPlan.length} no plan</Pill>}
-            {totalOverdue > 0 && <Pill tone="danger">{totalOverdue} overdue</Pill>}
-          </div>
-        }
-      />
-
-      {/* Most important / actionable data first: risks (overdue, no-plan,
-          backlog) lead, then throughput and load. */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 gap-3 mb-6">
-        <StatCard label="Overdue" value={String(totalOverdue)} accent="#f4502e" hint={totalOverdue ? "needs attention" : "all clear"} alert={totalOverdue > 0} />
-        <StatCard label="No plan today" value={String(noPlan.length)} accent={noPlan.length ? "#f4502e" : "#2bb673"} hint={`${planned}/${members.length} planned`} alert={noPlan.length > 0} />
-        <StatCard label="Backlog" value={String(totalPending)} accent="#1f2433" hint={highPending ? `${highPending} high priority` : "pending, all days"} alert={highPending > 0} />
-        <StatCard label="Done today" value={String(totalDoneToday)} accent={STATUS_META.DONE.hex} hint={`${teamDoneRate}% of today's plan`} />
-        <StatCard label="Tasks today" value={String(allTasks.length)} accent="#1f2433" hint={`${counts.DONE} done · ${counts.TODO} to do`} />
-        <StatCard label="In progress" value={String(counts.IN_PROGRESS)} accent={STATUS_META.IN_PROGRESS.hex} hint={`${counts.HOLD} on hold · ${totalDeferred} deferred`} />
-        <StatCard label="Team load" value={`${loadPct}%`} accent={loadPct > 100 ? "#f5a623" : "#1f2433"} hint={`${fmtHours(totalPlannedHours)} / ${capacityHours}h${overloaded ? ` · ${overloaded} over` : ""}`} alert={loadPct > 100} />
-        <StatCard label="Discipline" value={String(avgDiscipline)} accent={avgDiscipline >= 75 ? "#2bb673" : avgDiscipline >= 60 ? "#f5a623" : "#f4502e"} hint="team avg · 14d" />
+    <div className="max-w-[1200px] mx-auto">
+      <div className="flex items-end justify-between mb-[22px] gap-4 flex-wrap">
+        <div>
+          <h1 className="text-[28px] font-semibold tracking-[-0.02em] text-[#1c1a17] m-0">{scope === "team" ? "My team" : "Organization"}</h1>
+          <div className="mono text-xs tracking-[0.06em] text-[#b0a99e] mt-1 uppercase">{todayLabel} · Cutoff {cutoffTime}</div>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <ScopeToggle current={scope} />
+          <span className="text-xs font-semibold text-[#3f8a5b] bg-[#e9f4ec] px-3 py-1.5 rounded-lg">{planned}/{members.length} planned</span>
+          {noPlan.length > 0 && <span className="text-xs font-semibold text-[#c08a2d] bg-[#f8f0dd] px-3 py-1.5 rounded-lg">{noPlan.length} no plan</span>}
+          {totalOverdue > 0 && <span className="text-xs font-semibold text-primary bg-primary-soft px-3 py-1.5 rounded-lg">{totalOverdue} overdue</span>}
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-        <Card title="Status distribution" className="lg:col-span-1">
-          <Donut counts={counts} total={allTasks.length} />
-          <Legend counts={counts} />
-        </Card>
+      {/* stat cards — risks first, then throughput and load */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-[22px]">
+        <MiniStat label="Tasks today" value={String(allTasks.length)} sub={`${counts.DONE} done · ${counts.TODO} to do`} />
+        <MiniStat label="In progress" value={String(counts.IN_PROGRESS)} color={STATUS_META.IN_PROGRESS.hex} sub={`${counts.HOLD} on hold · ${totalDeferred} deferred`} />
+        <MiniStat label="Done today" value={String(totalDoneToday)} color={STATUS_META.DONE.hex} sub={`${teamDoneRate}% of today's plan`} />
+        <MiniStat label="Overdue" value={String(totalOverdue)} color={totalOverdue ? "#c0392b" : undefined} sub={totalOverdue ? "needs attention" : "all clear"} />
+        <MiniStat label="No plan today" value={String(noPlan.length)} color={noPlan.length ? "#c08a2d" : undefined} sub={`${planned}/${members.length} planned`} />
+        <MiniStat label="Backlog" value={String(totalPending)} sub={highPending ? `${highPending} high priority` : "pending, all days"} />
+        <MiniStat label="Team load" value={`${loadPct}%`} color={loadPct > 100 ? "#c08a2d" : undefined} sub={`${fmtHours(totalPlannedHours)} / ${capacityHours}h${overloaded ? ` · ${overloaded} over` : ""}`} />
+        <MiniStat label="Discipline" value={String(avgDiscipline)} color={avgDiscipline >= 75 ? "#3f8a5b" : avgDiscipline >= 60 ? "#c08a2d" : "#c0392b"} sub="team avg · 14d" />
+      </div>
 
-        <Card title="Top assignees (today's load)" className="lg:col-span-2">
-          {ranked.length === 0 ? (
-            <Empty text="No tasks planned across the team yet." />
+      {/* distribution + load by member */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.6fr] gap-[22px] mb-[22px]">
+        <div className="bg-white border border-[#ece8e1] rounded-2xl p-[22px]">
+          <div className="text-sm font-semibold mb-4">Status distribution</div>
+          <div className="flex items-center gap-[22px]">
+            <div className="relative w-[132px] h-[132px] shrink-0">
+              <div className="w-[132px] h-[132px] rounded-full" style={{ background: allTasks.length ? `conic-gradient(${donutStops})` : "#f0ece5" }} />
+              <div className="absolute inset-[22px] rounded-full bg-white flex flex-col items-center justify-center">
+                <span className="mono text-[26px] font-semibold leading-none">{allTasks.length}</span>
+                <span className="text-[11px] text-[#b0a99e]">tasks</span>
+              </div>
+            </div>
+            <div className="flex-1 grid grid-cols-2 gap-x-5 gap-y-3">
+              {TASK_STATUSES.map((s) => (
+                <div key={s} className="flex items-center gap-2 text-[13px]">
+                  <span className="w-[9px] h-[9px] rounded-[2px]" style={{ background: STATUS_META[s].hex }} />
+                  {STATUS_META[s].label}
+                  <span className="mono ml-auto text-[#6b665f]">{counts[s]}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white border border-[#ece8e1] rounded-2xl p-[22px]">
+          <div className="text-sm font-semibold mb-4">Today&apos;s load by member</div>
+          {members.length === 0 ? (
+            <Empty text="No team members yet." />
           ) : (
-            <div className="space-y-3">
-              {ranked.map((m) => {
-                const done = countByStatus(m.tasks).DONE;
+            <div className="flex flex-col gap-[13px]">
+              {loadRanked.map((m) => {
+                const ph = plannedHours(m);
+                const noplan = m.tasks.length === 0;
                 return (
                   <div key={m.id} className="flex items-center gap-3">
-                    <span className="w-32 truncate text-sm text-gray-700 shrink-0">{m.name || m.email}</span>
-                    <div className="flex-1 h-3 rounded-full bg-gray-100 overflow-hidden">
-                      <div className="h-full bar-fill bg-primary" style={{ width: `${(m.tasks.length / maxLoad) * 100}%` }} />
+                    <span className={cn("w-[120px] text-[13px] shrink-0 truncate", noplan ? "text-[#b0a99e]" : "text-[#6b665f]")}>{m.name || m.email}</span>
+                    <div className="flex-1 h-2.5 rounded-[5px] bg-[#f0ece5] overflow-hidden">
+                      <div className="h-full bar-fill bg-primary" style={{ width: `${(ph / maxPlanned) * 100}%` }} />
                     </div>
-                    <span className="text-xs text-gray-500 w-16 text-right shrink-0">{done}/{m.tasks.length} done</span>
+                    <span className={cn("mono w-11 text-right text-xs", noplan ? "text-[#c08a2d]" : "text-[#6b665f]")}>{noplan ? "no plan" : fmtHours(ph)}</span>
                   </div>
                 );
               })}
             </div>
           )}
-        </Card>
+        </div>
       </div>
 
       <DisciplineWatch members={members} />
@@ -285,8 +317,8 @@ function ManagerView({ todayLabel, todayIso, cutoffTime, members, pendingTasks }
                   {(m.name || m.email || "?")[0].toUpperCase()}
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-gray-900">{m.name || m.email}</p>
-                  {m.team && <p className="text-xs text-gray-500">{m.team}</p>}
+                  <p className="text-sm font-medium text-[#1c1a17]">{m.name || m.email}</p>
+                  {m.team && <p className="text-xs text-[#9c968d]">{m.team}</p>}
                 </div>
               </div>
             ))}
@@ -295,38 +327,14 @@ function ManagerView({ todayLabel, todayIso, cutoffTime, members, pendingTasks }
       )}
 
       {/* Who's doing what */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
+      <div className="bg-white rounded-2xl border border-[#ece8e1] p-[22px]">
         <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
-          <h2 className="font-semibold text-gray-800">Who&apos;s doing what</h2>
-          <div className="flex rounded-lg border border-gray-200 p-0.5 text-sm">
-            <button
-              type="button"
-              onClick={() => setView("board")}
-              className={cn("px-3 py-1 rounded-md font-medium transition-colors", view === "board" ? "bg-primary text-white" : "text-gray-500 hover:text-gray-800")}
-            >
-              Board
-            </button>
-            <button
-              type="button"
-              onClick={() => setView("list")}
-              className={cn("px-3 py-1 rounded-md font-medium transition-colors", view === "list" ? "bg-primary text-white" : "text-gray-500 hover:text-gray-800")}
-            >
-              List
-            </button>
-            <button
-              type="button"
-              onClick={() => setView("done")}
-              className={cn("px-3 py-1 rounded-md font-medium transition-colors", view === "done" ? "bg-primary text-white" : "text-gray-500 hover:text-gray-800")}
-            >
-              Done today{totalDoneToday > 0 ? ` (${totalDoneToday})` : ""}
-            </button>
-            <button
-              type="button"
-              onClick={() => setView("pending")}
-              className={cn("px-3 py-1 rounded-md font-medium transition-colors", view === "pending" ? "bg-primary text-white" : "text-gray-500 hover:text-gray-800")}
-            >
-              Pending{totalPending > 0 ? ` (${totalPending})` : ""}
-            </button>
+          <span className="text-sm font-semibold text-[#1c1a17]">Who&apos;s doing what · right now</span>
+          <div className="flex gap-0.5 bg-[#f6f4f1] border border-[#ece8e1] rounded-[9px] p-[3px]">
+            <ViewTab active={view === "board"} onClick={() => setView("board")}>Board</ViewTab>
+            <ViewTab active={view === "list"} onClick={() => setView("list")}>List</ViewTab>
+            <ViewTab active={view === "done"} onClick={() => setView("done")}>Done today{totalDoneToday > 0 ? ` (${totalDoneToday})` : ""}</ViewTab>
+            <ViewTab active={view === "pending"} onClick={() => setView("pending")}>Pending{totalPending > 0 ? ` (${totalPending})` : ""}</ViewTab>
           </div>
         </div>
 
@@ -348,49 +356,49 @@ function ManagerView({ todayLabel, todayIso, cutoffTime, members, pendingTasks }
             const c = countByStatus(m.tasks);
             const open = expanded === m.id;
             return (
-              <div key={m.id} className="border border-gray-100 rounded-lg">
+              <div key={m.id} className="border border-[#f2eee7] rounded-lg">
                 <button
                   type="button"
                   onClick={() => setExpanded(open ? null : m.id)}
-                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 rounded-lg"
+                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-[#f6f4f1] rounded-lg"
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 bg-primary-soft rounded-full flex items-center justify-center text-sm font-semibold text-primary">
                       {(m.name || m.email || "?")[0].toUpperCase()}
                     </div>
                     <div className="text-left">
-                      <p className="font-medium text-gray-900">{m.name || m.email}</p>
-                      <p className="text-xs text-gray-500">{m.team || "No team"} · {m.tasks.length} task{m.tasks.length === 1 ? "" : "s"}</p>
+                      <p className="font-medium text-[#1c1a17]">{m.name || m.email}</p>
+                      <p className="text-xs text-[#9c968d]">{m.team || "No team"} · {m.tasks.length} task{m.tasks.length === 1 ? "" : "s"}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     {m.tasks.length === 0 && <span className="text-xs bg-primary-soft text-primary px-2 py-0.5 rounded font-medium">No plan</span>}
-                    {c.DONE > 0 && <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-medium">{c.DONE} done</span>}
-                    {doneExtra(m) > 0 && <span title="Finished today but not on today's plan (carried over)" className="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded font-medium">+{doneExtra(m)} beyond plan</span>}
-                    {c.HOLD > 0 && <span className="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded font-medium">{c.HOLD} hold</span>}
-                    {deferredCount(m) > 0 && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-medium">{deferredCount(m)} deferred</span>}
+                    {c.DONE > 0 && <span className="text-xs bg-[#d6ecdd] text-[#357a4f] px-2 py-0.5 rounded font-medium">{c.DONE} done</span>}
+                    {doneExtra(m) > 0 && <span title="Finished today but not on today's plan (carried over)" className="text-xs bg-[#eae6fb] text-[#6a5acd] px-2 py-0.5 rounded font-medium">+{doneExtra(m)} beyond plan</span>}
+                    {c.HOLD > 0 && <span className="text-xs bg-[#eae6fb] text-[#6a5acd] px-2 py-0.5 rounded font-medium">{c.HOLD} hold</span>}
+                    {deferredCount(m) > 0 && <span className="text-xs bg-[#f8f0dd] text-[#c08a2d] px-2 py-0.5 rounded font-medium">{deferredCount(m)} deferred</span>}
                     {m.overdue > 0 && <span className="text-xs bg-primary-soft text-primary px-2 py-0.5 rounded font-medium">{m.overdue} overdue</span>}
-                    {plannedHours(m) > WORKDAY_HOURS && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-medium">⚠ {fmtHours(plannedHours(m))} planned</span>}
-                    <svg className={cn("w-4 h-4 text-gray-400 transition-transform", open && "rotate-180")} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    {plannedHours(m) > WORKDAY_HOURS && <span className="text-xs bg-[#f8f0dd] text-[#c08a2d] px-2 py-0.5 rounded font-medium">⚠ {fmtHours(plannedHours(m))} planned</span>}
+                    <svg className={cn("w-4 h-4 text-[#b0a99e] transition-transform", open && "rotate-180")} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                     </svg>
                   </div>
                 </button>
                 {open && (
-                  <div className="px-4 pb-3 pt-1 border-t border-gray-50 space-y-3">
+                  <div className="px-4 pb-3 pt-1 border-t border-[#f6f4f1] space-y-3">
                     {m.tasks.length === 0 ? (
-                      <p className="text-sm text-gray-400 py-2">No tasks planned today.</p>
+                      <p className="text-sm text-[#b0a99e] py-2">No tasks planned today.</p>
                     ) : (
                       <div className="space-y-2 pt-2">
                         {m.tasks.map((t) => (
                           <div key={t.id}>
                             <div className="flex items-center gap-3">
                               <span className={cn("w-2 h-2 rounded-full shrink-0", t.deferredToDate ? "bg-amber-400" : STATUS_META[t.status].dot)} />
-                              <p className={cn("text-sm flex-1 break-words", t.status === "DONE" ? "line-through text-gray-400" : t.deferredToDate ? "text-gray-500" : "text-gray-800")}>{t.title}</p>
+                              <p className={cn("text-sm flex-1 break-words", t.status === "DONE" ? "line-through text-[#b0a99e]" : t.deferredToDate ? "text-[#9c968d]" : "text-[#2c2925]")}>{t.title}</p>
                               <span className={cn("text-[10px] font-semibold rounded px-1.5 py-0.5 shrink-0", PRIORITY_META[t.priority].badge)}>{PRIORITY_META[t.priority].label}</span>
-                              <span className="text-xs text-gray-400 shrink-0">est {fmtHours(t.estimatedHours)} · act {fmtHours(t.actualHours)}</span>
+                              <span className="text-xs text-[#b0a99e] shrink-0">est {fmtHours(t.estimatedHours)} · act {fmtHours(t.actualHours)}</span>
                               {t.deferredToDate ? (
-                                <span className="text-xs rounded px-2 py-0.5 shrink-0 bg-amber-100 text-amber-700 font-medium">
+                                <span className="text-xs rounded px-2 py-0.5 shrink-0 bg-[#f8f0dd] text-[#c08a2d] font-medium">
                                   Deferred → {fmtShortDate(t.deferredToDate)}
                                 </span>
                               ) : (
@@ -398,13 +406,13 @@ function ManagerView({ todayLabel, todayIso, cutoffTime, members, pendingTasks }
                               )}
                             </div>
                             {t.deferredToDate && (
-                              <p className="ml-5 mt-1 text-xs text-amber-700">
+                              <p className="ml-5 mt-1 text-xs text-[#c08a2d]">
                                 Reason: {t.deferralCause ? DEFERRAL_CAUSE_META[t.deferralCause].label : "—"}
                                 {t.deferralNote ? ` · ${t.deferralNote}` : ""}
                               </p>
                             )}
                             {t.notes && (
-                              <p className="ml-5 mt-1 text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-md px-2.5 py-1.5 whitespace-pre-wrap break-words">
+                              <p className="ml-5 mt-1 text-xs text-[#9c968d] bg-[#f6f4f1] border border-[#f2eee7] rounded-md px-2.5 py-1.5 whitespace-pre-wrap break-words">
                                 {t.notes}
                               </p>
                             )}
@@ -445,20 +453,20 @@ function DoneTodayView({ members }: { members: Member[] }) {
       {active.map((m) => {
         const extra = doneExtra(m);
         return (
-          <div key={m.id} className="border border-gray-100 rounded-lg p-4">
+          <div key={m.id} className="border border-[#f2eee7] rounded-lg p-4">
             <div className="flex items-center gap-3 mb-3">
-              <div className="w-8 h-8 bg-emerald-50 rounded-full flex items-center justify-center text-sm font-semibold text-emerald-700 shrink-0">
+              <div className="w-8 h-8 bg-[#e9f4ec] rounded-full flex items-center justify-center text-sm font-semibold text-[#357a4f] shrink-0">
                 {(m.name || m.email || "?")[0].toUpperCase()}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="font-medium text-gray-900 truncate">{m.name || m.email}</p>
-                <p className="text-xs text-gray-500">{m.team || "No team"}</p>
+                <p className="font-medium text-[#1c1a17] truncate">{m.name || m.email}</p>
+                <p className="text-xs text-[#9c968d]">{m.team || "No team"}</p>
               </div>
-              <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-medium shrink-0">
+              <span className="text-xs bg-[#d6ecdd] text-[#357a4f] px-2 py-0.5 rounded font-medium shrink-0">
                 {m.doneToday.length} done
               </span>
               {extra > 0 && (
-                <span title="Completed today but not on today's plan" className="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded font-medium shrink-0">
+                <span title="Completed today but not on today's plan" className="text-xs bg-[#eae6fb] text-[#6a5acd] px-2 py-0.5 rounded font-medium shrink-0">
                   +{extra} beyond plan
                 </span>
               )}
@@ -466,14 +474,14 @@ function DoneTodayView({ members }: { members: Member[] }) {
             <div className="space-y-1.5">
               {m.doneToday.map((t) => (
                 <div key={t.id} className="flex items-center gap-3">
-                  <span className="w-2 h-2 rounded-full shrink-0 bg-emerald-500" />
-                  <p className="text-sm flex-1 break-words text-gray-700">{t.title}</p>
+                  <span className="w-2 h-2 rounded-full shrink-0 bg-[#3f8a5b]" />
+                  <p className="text-sm flex-1 break-words text-[#4a453e]">{t.title}</p>
                   <span className={cn("text-[10px] font-semibold rounded px-1.5 py-0.5 shrink-0", PRIORITY_META[t.priority].badge)}>{PRIORITY_META[t.priority].label}</span>
-                  <span className="text-xs text-gray-400 shrink-0">est {fmtHours(t.estimatedHours)} · act {fmtHours(t.actualHours)}</span>
+                  <span className="text-xs text-[#b0a99e] shrink-0">est {fmtHours(t.estimatedHours)} · act {fmtHours(t.actualHours)}</span>
                   {t.planned ? (
-                    <span className="text-xs rounded px-2 py-0.5 shrink-0 bg-gray-100 text-gray-600 font-medium">Today&apos;s plan</span>
+                    <span className="text-xs rounded px-2 py-0.5 shrink-0 bg-[#f2eee7] text-[#6b665f] font-medium">Today&apos;s plan</span>
                   ) : (
-                    <span title="Carried over from an earlier day" className="text-xs rounded px-2 py-0.5 shrink-0 bg-violet-100 text-violet-700 font-medium">Carried over</span>
+                    <span title="Carried over from an earlier day" className="text-xs rounded px-2 py-0.5 shrink-0 bg-[#eae6fb] text-[#6a5acd] font-medium">Carried over</span>
                   )}
                 </div>
               ))}
@@ -540,30 +548,30 @@ function PendingView({
 
   return (
     <div className="space-y-2">
-      <p className="text-xs text-gray-400">
+      <p className="text-xs text-[#b0a99e]">
         Every unfinished task on the team. Reassign one to move it to another member — it keeps its date, estimate, and priority.
       </p>
       {error && <p className="text-sm text-primary">{error}</p>}
       {ordered.map((t) => {
         const overdue = new Date(t.date).getTime() < todayMs;
         return (
-          <div key={t.id} className="flex items-center gap-3 border border-gray-100 rounded-lg px-3 py-2.5 flex-wrap">
+          <div key={t.id} className="flex items-center gap-3 border border-[#f2eee7] rounded-lg px-3 py-2.5 flex-wrap">
             <span className={cn("w-2 h-2 rounded-full shrink-0", STATUS_META[t.status].dot)} />
-            <p className="text-sm text-gray-800 flex-1 min-w-[8rem] break-words">{t.title}</p>
+            <p className="text-sm text-[#2c2925] flex-1 min-w-[8rem] break-words">{t.title}</p>
             <span className={cn("text-[10px] font-semibold rounded px-1.5 py-0.5 shrink-0", PRIORITY_META[t.priority].badge)}>{PRIORITY_META[t.priority].label}</span>
             <span className={cn("text-xs rounded px-2 py-0.5 shrink-0", STATUS_META[t.status].badge)}>{STATUS_META[t.status].label}</span>
-            <span className="text-xs text-gray-400 shrink-0">est {fmtHours(t.estimatedHours)}</span>
-            <span className={cn("text-xs rounded px-2 py-0.5 shrink-0", overdue ? "bg-primary-soft text-primary font-medium" : "text-gray-400")}>
+            <span className="text-xs text-[#b0a99e] shrink-0">est {fmtHours(t.estimatedHours)}</span>
+            <span className={cn("text-xs rounded px-2 py-0.5 shrink-0", overdue ? "bg-primary-soft text-primary font-medium" : "text-[#b0a99e]")}>
               {overdue ? "overdue · " : ""}{fmtShortDate(t.date)}
             </span>
             <div className="flex items-center gap-1.5 shrink-0">
-              <span className="text-xs text-gray-400">→</span>
+              <span className="text-xs text-[#b0a99e]">→</span>
               <select
                 value={t.userId}
                 disabled={busy === t.id}
                 onChange={(e) => reassign(t.id, e.target.value)}
                 title="Reassign to another member"
-                className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+                className="text-xs border border-[#ece8e1] rounded-lg px-2 py-1.5 bg-white disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
               >
                 {members.map((m) => (
                   <option key={m.id} value={m.id}>{m.name || m.email}</option>
@@ -626,18 +634,21 @@ export function AllTasksView({
     return true;
   });
 
-  const selectCls = "text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-[#f4502e55]";
+  const selectCls = "h-[38px] text-[13px] border border-[#e7e3dd] rounded-[10px] px-2.5 bg-white text-[#6b665f] focus:outline-none focus:ring-2 focus:ring-[#e0533a55]";
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search ID, title, or notes…"
-          className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-[#f4502e55] flex-1 min-w-[10rem]"
-        />
+    <div>
+      <div className="flex flex-wrap items-center gap-2.5 mb-2">
+        <div className="flex-1 min-w-[12rem] flex items-center gap-2 bg-[#f6f4f1] border border-[#ece8e1] rounded-[10px] px-3 h-[38px]">
+          <span className="text-[#c7c0b6] text-[13px]">⌕</span>
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search ID, title, or notes…"
+            className="flex-1 min-w-0 border-none outline-none bg-transparent text-[13px]"
+          />
+        </div>
         <select value={owner} onChange={(e) => setOwner(e.target.value)} title="Filter by owner" className={selectCls}>
           <option value="all">All owners</option>
           {members.map((m) => (
@@ -674,7 +685,7 @@ export function AllTasksView({
         <button
           type="button"
           onClick={() => setShowAdd(true)}
-          className="text-xs font-medium rounded-lg px-3 py-1.5 transition-colors shrink-0 bg-primary text-white hover:bg-primary-hover"
+          className="h-[38px] text-[13px] font-semibold rounded-[10px] px-4 transition-colors shrink-0 bg-primary text-white hover:bg-primary-hover"
         >
           + Add task
         </button>
@@ -696,14 +707,25 @@ export function AllTasksView({
         />
       )}
 
-      <p className="text-xs text-gray-400">
+      <p className="text-xs text-[#b0a99e] px-1 py-2">
         Showing {filtered.length} of {allTasks.length} task{allTasks.length === 1 ? "" : "s"}.
       </p>
 
       {filtered.length === 0 ? (
         <Empty text="No tasks match these filters." />
       ) : (
-        <div className="space-y-1.5">
+        <div>
+          {/* column header */}
+          <div className={cn(TASK_ROW_GRID, "px-1 py-2 border-b border-[#ece8e1]")}>
+            <span />
+            <span className="mono text-[10px] tracking-[0.08em] text-[#b0a99e]">ID</span>
+            <span className="text-[10px] tracking-[0.08em] text-[#b0a99e] uppercase">Task</span>
+            <span className="text-[10px] tracking-[0.08em] text-[#b0a99e] uppercase">Owner</span>
+            <span className="text-[10px] tracking-[0.08em] text-[#b0a99e] uppercase">Priority</span>
+            <span className="text-[10px] tracking-[0.08em] text-[#b0a99e] uppercase">Status</span>
+            <span className="mono text-[10px] tracking-[0.08em] text-[#b0a99e] text-right">EST · ACT</span>
+            <span className="text-[10px] tracking-[0.08em] text-[#b0a99e] uppercase text-right">Date</span>
+          </div>
           {filtered.map((t) => (
             <TaskListRow
               key={t.id}
@@ -722,6 +744,9 @@ export function AllTasksView({
     </div>
   );
 }
+
+// Shared grid template for the Task List header + data rows.
+const TASK_ROW_GRID = "grid grid-cols-[26px_60px_minmax(0,1fr)_64px_78px_120px_132px_60px] items-center gap-3";
 
 // One Task List row. Collapsed it's a compact summary; clicking it expands to
 // reveal the full description and — for live tasks — an inline editor a manager
@@ -859,12 +884,12 @@ function TaskListRow({
     }
   }
 
-  const inputCls = "border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#f4502e55]";
+  const inputCls = "border border-[#ece8e1] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#e0533a55]";
 
   return (
-    <div className="border border-gray-100 rounded-lg overflow-hidden">
-      {/* Summary line — click to expand/collapse. A div (not a button) so the
-          inline title input/controls can nest without invalid button-in-button. */}
+    <div className={cn(open && "bg-[#f6f4f1]/40 rounded-lg")}>
+      {/* Summary line — dense grid; click to expand/collapse. A div (not a button)
+          so the inline title input/controls can nest without invalid button-in-button. */}
       <div
         role="button"
         tabIndex={0}
@@ -872,12 +897,12 @@ function TaskListRow({
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen((o) => !o); }
         }}
-        className="w-full text-left flex items-center gap-3 px-3 py-2.5 flex-wrap hover:bg-gray-50 transition-colors cursor-pointer"
+        className={cn(TASK_ROW_GRID, "w-full text-left px-1 py-3 border-b border-[#f2eee7] hover:bg-[#f6f4f1] transition-colors cursor-pointer")}
       >
-        <span className={cn("w-2 h-2 rounded-full shrink-0", t.deferredToDate ? "bg-amber-400" : STATUS_META[t.status].dot)} />
-        <span className="text-[11px] font-mono text-gray-400 shrink-0 tabular-nums" title="Task ID">Task-{t.seq}</span>
+        <span className={cn("w-2 h-2 rounded-full justify-self-center", t.deferredToDate ? "bg-amber-400" : STATUS_META[t.status].dot)} />
+        <span className="mono text-[11px] text-[#b0a99e]" title="Task ID">Task-{t.seq}</span>
         {titleEditing ? (
-          <span className="flex items-center gap-1 flex-1 min-w-[8rem]" onClick={(e) => e.stopPropagation()}>
+          <span className="flex items-center gap-1 min-w-0" onClick={(e) => e.stopPropagation()}>
             <input
               autoFocus
               value={titleDraft}
@@ -888,14 +913,16 @@ function TaskListRow({
                 if (e.key === "Escape") { e.preventDefault(); cancelTitle(); }
               }}
               aria-label="Edit task title"
-              className="flex-1 min-w-0 text-sm border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+              className="flex-1 min-w-0 text-sm border border-[#ece8e1] rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
             />
             <button type="button" onClick={(e) => { e.stopPropagation(); saveTitle(); }} title="Save title" className="text-xs font-medium text-primary hover:opacity-80 shrink-0">Save</button>
-            <button type="button" onClick={(e) => { e.stopPropagation(); cancelTitle(); }} title="Cancel" className="text-xs text-gray-400 hover:text-gray-600 shrink-0">Cancel</button>
+            <button type="button" onClick={(e) => { e.stopPropagation(); cancelTitle(); }} title="Cancel" className="text-xs text-[#b0a99e] hover:text-[#6b665f] shrink-0">Cancel</button>
           </span>
         ) : (
-          <span className="flex items-center gap-1.5 flex-1 min-w-[8rem]">
-            <span className={cn("text-sm break-words", t.status === "DONE" ? "line-through text-gray-400" : "text-gray-800")}>{t.title}</span>
+          <span className="flex items-center gap-2 min-w-0">
+            <span className={cn("text-sm truncate", t.status === "DONE" ? "line-through text-[#b0a99e]" : "text-[#1c1a17]")}>{t.title}</span>
+            {catName && <span className="text-[10px] font-semibold rounded-[5px] px-[7px] py-0.5 shrink-0 bg-[#eae6fb] text-[#6a5acd]">{catName}</span>}
+            {t.tags.length > 0 && <TagBadges tags={t.tags} className="shrink-0" />}
             {/* Pencil — quick rename; hidden for deferred originals (immutable). */}
             {editable && (
               <button
@@ -903,7 +930,7 @@ function TaskListRow({
                 onClick={(e) => { e.stopPropagation(); setTitleDraft(t.title); setTitleEditing(true); }}
                 title="Edit title"
                 aria-label="Edit task title"
-                className="text-gray-300 hover:text-primary shrink-0 transition-colors"
+                className="text-[#ddd8d0] hover:text-primary shrink-0 transition-colors"
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -912,35 +939,30 @@ function TaskListRow({
             )}
           </span>
         )}
-        <span className="text-xs text-gray-500 shrink-0">{ownerName}</span>
-        <span className={cn("text-[10px] font-semibold rounded px-1.5 py-0.5 shrink-0", PRIORITY_META[t.priority].badge)}>{PRIORITY_META[t.priority].label}</span>
-        {catName && <span className="text-[10px] font-semibold rounded px-1.5 py-0.5 shrink-0 bg-indigo-100 text-indigo-700">{catName}</span>}
-        {t.tags.length > 0 && <TagBadges tags={t.tags} className="shrink-0" />}
+        <span className="text-xs text-[#9c968d] truncate">{ownerName}</span>
+        <span className={cn("text-[10px] font-semibold rounded-md px-2 py-[3px] justify-self-start", PRIORITY_META[t.priority].badge)}>{PRIORITY_META[t.priority].label}</span>
         {t.deferredToDate ? (
-          <span className="text-xs rounded px-2 py-0.5 shrink-0 bg-amber-100 text-amber-700 font-medium">Deferred → {fmtShortDate(t.deferredToDate)}</span>
+          <span className="text-[10px] rounded-md px-2 py-[3px] justify-self-start bg-[#f8f0dd] text-[#c08a2d] font-semibold whitespace-nowrap">Deferred→{fmtShortDate(t.deferredToDate)}</span>
         ) : (
-          <span className={cn("text-xs rounded px-2 py-0.5 shrink-0", STATUS_META[t.status].badge)}>{STATUS_META[t.status].label}</span>
+          <span className={cn("text-[10px] font-semibold rounded-md px-2 py-[3px] justify-self-start", STATUS_META[t.status].badge)}>{STATUS_META[t.status].label}</span>
         )}
-        <span className="text-xs text-gray-400 shrink-0">est {fmtHours(t.estimatedHours)} · act {fmtHours(t.actualHours)}</span>
-        <span className={cn("text-xs rounded px-2 py-0.5 shrink-0", overdue ? "bg-primary-soft text-primary font-medium" : "text-gray-400")}>
-          {overdue ? "overdue · " : ""}{fmtShortDate(t.date)}
+        <span className="mono text-[11px] text-[#9c968d] text-right">{fmtHours(t.estimatedHours)} · {fmtHours(t.actualHours)}</span>
+        <span className={cn("mono text-[11px] text-right leading-tight", overdue ? "text-[#c0392b]" : "text-[#9c968d]")}>
+          {overdue && <>overdue<br /></>}{fmtShortDate(t.date)}
         </span>
-        <svg className={cn("w-4 h-4 text-gray-400 transition-transform shrink-0", open && "rotate-180")} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
       </div>
 
       {/* Detail / edit panel */}
       {open && (
-        <div className="border-t border-gray-100 bg-gray-50/60 px-4 py-3 space-y-3">
+        <div className="border-t border-[#f2eee7] bg-[#f6f4f1]/60 px-4 py-3 space-y-3">
           {!editing ? (
             <>
               <div>
-                <p className="text-xs font-semibold text-gray-500 mb-1">Description</p>
+                <p className="text-xs font-semibold text-[#9c968d] mb-1">Description</p>
                 {t.notes ? (
-                  <p className="text-sm text-gray-700 whitespace-pre-wrap break-words">{t.notes}</p>
+                  <p className="text-sm text-[#4a453e] whitespace-pre-wrap break-words">{t.notes}</p>
                 ) : (
-                  <p className="text-sm text-gray-400 italic">No description yet.</p>
+                  <p className="text-sm text-[#b0a99e] italic">No description yet.</p>
                 )}
               </div>
               <div className="flex items-center gap-2 flex-wrap">
@@ -948,14 +970,14 @@ function TaskListRow({
                   <button
                     type="button"
                     onClick={startEdit}
-                    className="text-xs font-medium bg-white border border-gray-200 hover:border-primary hover:text-primary rounded-lg px-3 py-1.5 transition-colors"
+                    className="text-xs font-medium bg-white border border-[#ece8e1] hover:border-primary hover:text-primary rounded-lg px-3 py-1.5 transition-colors"
                   >
                     Edit details
                   </button>
                 )}
                 {confirmingDelete ? (
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-500">Delete Task-{t.seq}?</span>
+                    <span className="text-xs text-[#9c968d]">Delete Task-{t.seq}?</span>
                     <button
                       type="button"
                       onClick={handleDelete}
@@ -968,7 +990,7 @@ function TaskListRow({
                       type="button"
                       onClick={() => setConfirmingDelete(false)}
                       disabled={deleting}
-                      className="text-xs text-gray-500 hover:text-gray-800 px-2 py-1.5"
+                      className="text-xs text-[#9c968d] hover:text-[#2c2925] px-2 py-1.5"
                     >
                       Cancel
                     </button>
@@ -977,7 +999,7 @@ function TaskListRow({
                   <button
                     type="button"
                     onClick={() => setConfirmingDelete(true)}
-                    className="text-xs font-medium bg-white border border-gray-200 text-gray-500 hover:border-primary hover:text-primary rounded-lg px-3 py-1.5 transition-colors"
+                    className="text-xs font-medium bg-white border border-[#ece8e1] text-[#9c968d] hover:border-primary hover:text-primary rounded-lg px-3 py-1.5 transition-colors"
                   >
                     Delete task
                   </button>
@@ -988,11 +1010,11 @@ function TaskListRow({
           ) : (
             <div className="space-y-3">
               <div>
-                <label className="text-xs font-semibold text-gray-500 mb-1 block">Title</label>
+                <label className="text-xs font-semibold text-[#9c968d] mb-1 block">Title</label>
                 <input value={title} onChange={(e) => setTitle(e.target.value)} className={cn(inputCls, "w-full")} />
               </div>
               <div>
-                <label className="text-xs font-semibold text-gray-500 mb-1 block">Description</label>
+                <label className="text-xs font-semibold text-[#9c968d] mb-1 block">Description</label>
                 <textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
@@ -1004,7 +1026,7 @@ function TaskListRow({
               </div>
               <div className="flex flex-wrap items-end gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-gray-500 mb-1 block">Priority</label>
+                  <label className="text-xs font-semibold text-[#9c968d] mb-1 block">Priority</label>
                   <select value={priority} onChange={(e) => setPriority(e.target.value as Priority)} className={cn(inputCls, "bg-white")}>
                     {PRIORITIES.map((p) => (
                       <option key={p} value={p}>{PRIORITY_META[p].label}</option>
@@ -1012,7 +1034,7 @@ function TaskListRow({
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-gray-500 mb-1 block">Status</label>
+                  <label className="text-xs font-semibold text-[#9c968d] mb-1 block">Status</label>
                   <select value={status} onChange={(e) => setStatus(e.target.value as TaskStatus)} className={cn(inputCls, "bg-white")}>
                     {TASK_STATUSES.map((s) => (
                       <option key={s} value={s}>{STATUS_META[s].label}</option>
@@ -1020,7 +1042,7 @@ function TaskListRow({
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-gray-500 mb-1 block">Category</label>
+                  <label className="text-xs font-semibold text-[#9c968d] mb-1 block">Category</label>
                   <CategorySelect
                     categories={categories}
                     value={category}
@@ -1030,7 +1052,7 @@ function TaskListRow({
                   />
                 </div>
                 <div className="min-w-[12rem] flex-1">
-                  <label className="text-xs font-semibold text-gray-500 mb-1 block">Tags</label>
+                  <label className="text-xs font-semibold text-[#9c968d] mb-1 block">Tags</label>
                   <TagInput
                     value={selectedTags}
                     onChange={setSelectedTags}
@@ -1039,11 +1061,11 @@ function TaskListRow({
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-gray-500 mb-1 block">Estimate (h)</label>
+                  <label className="text-xs font-semibold text-[#9c968d] mb-1 block">Estimate (h)</label>
                   <input type="number" min="0.5" step="0.5" value={estimate} onChange={(e) => setEstimate(e.target.value)} placeholder="—" className={cn(inputCls, "w-24")} />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-gray-500 mb-1 block">Actual (h)</label>
+                  <label className="text-xs font-semibold text-[#9c968d] mb-1 block">Actual (h)</label>
                   <input type="number" min="0" step="0.5" value={actual} onChange={(e) => setActual(e.target.value)} placeholder="—" className={cn(inputCls, "w-24")} />
                 </div>
               </div>
@@ -1060,7 +1082,7 @@ function TaskListRow({
                 <button
                   type="button"
                   onClick={() => { setEditing(false); setError(null); }}
-                  className="text-sm text-gray-500 hover:text-gray-800 px-3 py-2"
+                  className="text-sm text-[#9c968d] hover:text-[#2c2925] px-3 py-2"
                 >
                   Cancel
                 </button>
@@ -1126,8 +1148,8 @@ function AddTaskPanel({
     };
   }, [busy, onClose]);
 
-  const fieldCls = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#f4502e55]";
-  const labelCls = "block text-xs font-medium text-gray-600 mb-1";
+  const fieldCls = "w-full border border-[#ece8e1] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#e0533a55]";
+  const labelCls = "block text-xs font-medium text-[#6b665f] mb-1";
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -1165,7 +1187,7 @@ function AddTaskPanel({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 bg-gray-900/40 backdrop-blur-sm overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 bg-[#1c1a17]/40 backdrop-blur-sm overflow-y-auto"
       onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}
     >
       <form
@@ -1173,12 +1195,12 @@ function AddTaskPanel({
         role="dialog"
         aria-modal="true"
         aria-label="Add a task"
-        className="w-full max-w-lg my-8 bg-white rounded-2xl border border-gray-200 shadow-xl p-5 sm:p-6 space-y-4"
+        className="w-full max-w-lg my-8 bg-white rounded-2xl border border-[#ece8e1] shadow-xl p-5 sm:p-6 space-y-4"
       >
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-base font-semibold text-gray-900">Add a task</h2>
-            <p className="text-xs text-gray-400 mt-1">
+            <h2 className="text-base font-semibold text-[#1c1a17]">Add a task</h2>
+            <p className="text-xs text-[#b0a99e] mt-1">
               Assigns straight to a member&apos;s day — pick who it lands on and the day it belongs to.
             </p>
           </div>
@@ -1186,7 +1208,7 @@ function AddTaskPanel({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="shrink-0 text-gray-400 hover:text-gray-600 text-xl leading-none px-1"
+            className="shrink-0 text-[#b0a99e] hover:text-[#6b665f] text-xl leading-none px-1"
           >
             ×
           </button>
@@ -1246,7 +1268,7 @@ function AddTaskPanel({
                 placeholder="Hours"
                 className={cn(fieldCls, "flex-1")}
               />
-              <span className="text-sm text-gray-400">h</span>
+              <span className="text-sm text-[#b0a99e]">h</span>
             </div>
           </div>
         </div>
@@ -1290,7 +1312,7 @@ function AddTaskPanel({
           <button
             type="button"
             onClick={onClose}
-            className="text-sm text-gray-500 hover:text-gray-700 px-3 py-2"
+            className="text-sm text-[#9c968d] hover:text-[#4a453e] px-3 py-2"
           >
             Cancel
           </button>
@@ -1311,11 +1333,19 @@ function AddTaskPanel({
 
 // 0–100 consistency score → tone + label. Reflects "did they plan + follow
 // through", not raw output. Purpose is nudging, not micromanagement.
-function disciplineTone(score: number): { label: string; text: string; bg: string; dot: string } {
-  if (score >= 80) return { label: "Strong", text: "text-emerald-700", bg: "bg-emerald-100", dot: "bg-emerald-500" };
-  if (score >= 60) return { label: "Steady", text: "text-blue-700", bg: "bg-blue-100", dot: "bg-blue-500" };
-  if (score >= 40) return { label: "Patchy", text: "text-amber-700", bg: "bg-amber-100", dot: "bg-amber-500" };
-  return { label: "Slipping", text: "text-primary", bg: "bg-primary-soft", dot: "bg-primary" };
+function disciplineTone(score: number): { label: string; text: string; bg: string; dot: string; hex: string } {
+  if (score >= 80) return { label: "Strong", text: "text-[#357a4f]", bg: "bg-[#d6ecdd]", dot: "bg-[#3f8a5b]", hex: "#3f8a5b" };
+  if (score >= 60) return { label: "Steady", text: "text-blue-700", bg: "bg-blue-100", dot: "bg-blue-500", hex: "#3a6ea5" };
+  if (score >= 40) return { label: "Patchy", text: "text-[#c08a2d]", bg: "bg-[#f8f0dd]", dot: "bg-[#c08a2d]", hex: "#c08a2d" };
+  return { label: "Slipping", text: "text-primary", bg: "bg-primary-soft", dot: "bg-primary", hex: "#c0392b" };
+}
+
+// Badge colors for a discipline verdict, matching the mockup's status palette.
+function verdictBadge(score: number): string {
+  if (score >= 80) return "text-[#3f8a5b] bg-[#e9f4ec]";
+  if (score >= 60) return "text-[#3f8a5b] bg-[#e9f4ec]";
+  if (score >= 40) return "text-[#c08a2d] bg-[#f8f0dd]";
+  return "text-[#c0392b] bg-[#fbe4de]";
 }
 
 function lastActiveLabel(iso: string | null): string {
@@ -1334,43 +1364,44 @@ function DisciplineWatch({ members }: { members: Member[] }) {
     .sort((a, b) => a.discipline.score - b.discipline.score);
 
   return (
-    <Card title="Discipline watch" className="mb-6">
-      <p className="text-xs text-gray-400 -mt-2 mb-4">
-        Planning consistency &amp; follow-through over the last 2 weeks. Higher means they set a plan most days and finish what they start.
+    <div className="bg-white border border-[#ece8e1] rounded-2xl p-[22px] mb-[22px]">
+      <div className="flex items-baseline justify-between mb-1 gap-3 flex-wrap">
+        <span className="text-sm font-semibold text-[#1c1a17]">Discipline watch</span>
+        <span className="text-xs text-[#b0a99e]">planning consistency &amp; follow-through · last 2 weeks</span>
+      </div>
+      <p className="text-xs text-[#9c968d] mt-0.5 mb-3.5">
+        Higher means they set a plan most days and finish what they start. Signals, not scores.
       </p>
       {flagged.length === 0 ? (
-        <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 rounded-lg px-4 py-3">
-          <span className="w-2 h-2 rounded-full bg-emerald-500" />
+        <div className="flex items-center gap-2 text-sm text-[#357a4f] bg-[#e9f4ec] rounded-lg px-4 py-3">
+          <span className="w-2 h-2 rounded-full bg-[#3f8a5b]" />
           Everyone planned today and is keeping a steady cadence. Nice.
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="flex flex-col">
           {flagged.map((m) => {
             const t = disciplineTone(m.discipline.score);
             return (
-              <div key={m.id} className="flex items-center gap-3 py-1.5 border-b border-gray-50 last:border-0">
-                <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center text-xs font-semibold text-gray-600 shrink-0">
-                  {(m.name || m.email || "?")[0].toUpperCase()}
+              <div key={m.id} className="grid grid-cols-[1.4fr_1fr_100px_90px] items-center gap-3 py-3 border-t border-[#f2eee7]">
+                <div className="flex items-center gap-[11px] min-w-0">
+                  <span className="w-[30px] h-[30px] rounded-full bg-[#efe9e1] inline-flex items-center justify-center font-semibold text-[#8a8378] text-xs shrink-0">
+                    {(m.name || m.email || "?")[0].toUpperCase()}
+                  </span>
+                  <span className="text-sm font-medium text-[#1c1a17] truncate">{m.name || m.email}</span>
                 </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-gray-900 truncate">{m.name || m.email}</p>
-                  <p className="text-xs text-gray-400">
-                    planned {m.discipline.daysPlanned}/{m.discipline.activeDays} days · {m.discipline.completionPct}% done · active {lastActiveLabel(m.discipline.lastActiveIso)}
-                  </p>
+                <div className="mono text-xs text-[#9c968d]">
+                  planned {m.discipline.daysPlanned}/{m.discipline.activeDays} days · {m.discipline.completionPct}% done · {m.discipline.plannedToday ? "active now" : `active ${lastActiveLabel(m.discipline.lastActiveIso)}`}
                 </div>
-                {!m.discipline.plannedToday && (
-                  <span className="text-xs bg-primary-soft text-primary px-2 py-0.5 rounded font-medium shrink-0">No plan today</span>
-                )}
-                <div className="flex items-center gap-1.5 shrink-0 w-24 justify-end">
-                  <span className={cn("w-2 h-2 rounded-full", t.dot)} />
-                  <span className={cn("text-xs font-semibold px-2 py-0.5 rounded", t.bg, t.text)}>{m.discipline.score} · {t.label}</span>
+                <div className="h-[7px] rounded-[4px] bg-[#f0ece5] overflow-hidden">
+                  <div className="h-full bar-fill" style={{ width: `${Math.min(100, m.discipline.score)}%`, background: t.hex }} />
                 </div>
+                <span className={cn("text-[11px] font-semibold px-[9px] py-1 rounded-md text-center", verdictBadge(m.discipline.score))}>{t.label}</span>
               </div>
             );
           })}
         </div>
       )}
-    </Card>
+    </div>
   );
 }
 
@@ -1419,20 +1450,20 @@ function PersonCard({ m }: { m: Member }) {
   const planned = plannedHours(m);
   const overplanned = planned > WORKDAY_HOURS;
   const activityColor =
-    act.tone === "active" ? "text-amber-700 bg-amber-50" :
-    act.tone === "done" ? "text-emerald-700 bg-emerald-50" :
+    act.tone === "active" ? "text-[#c08a2d] bg-[#fdf7ec]" :
+    act.tone === "done" ? "text-[#357a4f] bg-[#e9f4ec]" :
     act.tone === "none" ? "text-primary bg-primary-soft" :
-    "text-gray-600 bg-gray-50";
+    "text-[#6b665f] bg-[#f6f4f1]";
 
   return (
-    <div className="border border-gray-200 rounded-xl p-3.5 flex flex-col gap-2.5 hover:border-gray-300 transition-colors">
+    <div className="border border-[#ece8e1] rounded-xl p-3.5 flex flex-col gap-2.5 hover:border-[#ddd8d0] transition-colors">
       <div className="flex items-center gap-2.5">
         <div className="w-9 h-9 bg-primary-soft rounded-full flex items-center justify-center text-sm font-semibold text-primary shrink-0">
           {(m.name || m.email || "?")[0].toUpperCase()}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-gray-900 truncate">{m.name || m.email}</p>
-          <p className="text-xs text-gray-400 truncate">{m.team || "No team"}</p>
+          <p className="text-sm font-medium text-[#1c1a17] truncate">{m.name || m.email}</p>
+          <p className="text-xs text-[#b0a99e] truncate">{m.team || "No team"}</p>
         </div>
         <span title={`Discipline ${m.discipline.score}/100 · ${dt.label}`} className={cn("text-xs font-semibold px-1.5 py-0.5 rounded shrink-0", dt.bg, dt.text)}>
           {m.discipline.score}
@@ -1447,8 +1478,8 @@ function PersonCard({ m }: { m: Member }) {
       {noted.length > 0 && (
         <div className="space-y-1">
           {visibleNotes.map((t) => (
-            <p key={t.id} className="text-xs text-gray-500 leading-snug line-clamp-2">
-              <span className="text-gray-400">📝 {t.title}: </span>
+            <p key={t.id} className="text-xs text-[#9c968d] leading-snug line-clamp-2">
+              <span className="text-[#b0a99e]">📝 {t.title}: </span>
               {t.notes}
             </p>
           ))}
@@ -1465,7 +1496,7 @@ function PersonCard({ m }: { m: Member }) {
             <button
               type="button"
               onClick={() => setShowAllNotes(false)}
-              className="text-xs font-medium text-gray-400 hover:underline"
+              className="text-xs font-medium text-[#b0a99e] hover:underline"
             >
               Show less
             </button>
@@ -1476,18 +1507,18 @@ function PersonCard({ m }: { m: Member }) {
       <div className="flex items-center gap-1.5 flex-wrap">
         {TASK_STATUSES.map((s) =>
           c[s] > 0 ? (
-            <span key={s} className="inline-flex items-center gap-1 text-xs text-gray-500">
+            <span key={s} className="inline-flex items-center gap-1 text-xs text-[#9c968d]">
               <span className={cn("w-2 h-2 rounded-full", STATUS_META[s].dot)} />
               {c[s]}
             </span>
           ) : null
         )}
-        {m.tasks.length > 0 && <span className="text-xs text-gray-400 ml-auto">{doneOf} done</span>}
-        {doneExtra(m) > 0 && <span title="Finished today but not on today's plan (carried over)" className="text-xs bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded font-medium">+{doneExtra(m)} beyond plan</span>}
-        {deferredCount(m) > 0 && <span title="Committed tasks deferred to a later day" className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">{deferredCount(m)} deferred</span>}
+        {m.tasks.length > 0 && <span className="text-xs text-[#b0a99e] ml-auto">{doneOf} done</span>}
+        {doneExtra(m) > 0 && <span title="Finished today but not on today's plan (carried over)" className="text-xs bg-[#eae6fb] text-[#6a5acd] px-1.5 py-0.5 rounded font-medium">+{doneExtra(m)} beyond plan</span>}
+        {deferredCount(m) > 0 && <span title="Committed tasks deferred to a later day" className="text-xs bg-[#f8f0dd] text-[#c08a2d] px-1.5 py-0.5 rounded font-medium">{deferredCount(m)} deferred</span>}
         {m.overdue > 0 && <span className="text-xs bg-primary-soft text-primary px-1.5 py-0.5 rounded font-medium">{m.overdue} overdue</span>}
         {overplanned && (
-          <span title={`Planned ${fmtHours(planned)} — over the ~${WORKDAY_HOURS}h day`} className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">
+          <span title={`Planned ${fmtHours(planned)} — over the ~${WORKDAY_HOURS}h day`} className="text-xs bg-[#f8f0dd] text-[#c08a2d] px-1.5 py-0.5 rounded font-medium">
             ⚠ {fmtHours(planned)}
           </span>
         )}
@@ -1561,20 +1592,20 @@ function AssignTaskForm({ memberId, memberName }: { memberId: string; memberName
   }
 
   return (
-    <form onSubmit={submit} className="flex flex-col gap-2 bg-gray-50 border border-gray-100 rounded-lg p-2.5">
-      <p className="text-xs text-gray-500">Assign to {memberName}&apos;s queue</p>
+    <form onSubmit={submit} className="flex flex-col gap-2 bg-[#f6f4f1] border border-[#f2eee7] rounded-lg p-2.5">
+      <p className="text-xs text-[#9c968d]">Assign to {memberName}&apos;s queue</p>
       <input
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         placeholder="Task title"
-        className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+        className="border border-[#ece8e1] rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
       />
       <div className="flex items-center gap-2">
         <select
           value={priority}
           onChange={(e) => setPriority(e.target.value as Priority)}
           title="Priority"
-          className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+          className="border border-[#ece8e1] rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
         >
           {PRIORITIES.map((p) => (
             <option key={p} value={p}>{PRIORITY_META[p].label}</option>
@@ -1589,9 +1620,9 @@ function AssignTaskForm({ memberId, memberName }: { memberId: string; memberName
             onChange={(e) => setEstimate(e.target.value)}
             placeholder="Est."
             title="Effort estimate (optional — the member can set this before starting)"
-            className="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+            className="w-16 border border-[#ece8e1] rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
           />
-          <span className="text-xs text-gray-400">h</span>
+          <span className="text-xs text-[#b0a99e]">h</span>
         </div>
         <button
           type="submit"
@@ -1603,13 +1634,13 @@ function AssignTaskForm({ memberId, memberName }: { memberId: string; memberName
         <button
           type="button"
           onClick={() => { setOpen(false); setError(null); }}
-          className="text-xs text-gray-400 hover:text-gray-600"
+          className="text-xs text-[#b0a99e] hover:text-[#6b665f]"
         >
           Close
         </button>
       </div>
       {error && <p className="text-xs text-primary">{error}</p>}
-      {done && <p className="text-xs text-emerald-600">Added to their queue.</p>}
+      {done && <p className="text-xs text-[#3f8a5b]">Added to their queue.</p>}
     </form>
   );
 }
@@ -1626,8 +1657,8 @@ function Header({ title, subtitle, right }: { title: string; subtitle: string; r
   return (
     <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">{title}</h1>
-        <p className="text-gray-500">{subtitle}</p>
+        <h1 className="text-[28px] font-semibold tracking-[-0.02em] text-[#1c1a17]">{title}</h1>
+        <p className="text-[#9c968d]">{subtitle}</p>
       </div>
       {right}
     </div>
@@ -1636,33 +1667,52 @@ function Header({ title, subtitle, right }: { title: string; subtitle: string; r
 
 function StatCard({ label, value, accent, hint, alert }: { label: string; value: string; accent: string; hint?: string; alert?: boolean }) {
   return (
-    <div className={cn("bg-white rounded-xl border p-4", alert ? "border-[#f6cabc]" : "border-gray-200")}>
-      <p className="text-xs text-gray-500 truncate">{label}</p>
+    <div className={cn("bg-white rounded-xl border p-4", alert ? "border-[#f6cabc]" : "border-[#ece8e1]")}>
+      <p className="text-xs text-[#9c968d] truncate">{label}</p>
       <p className="text-2xl font-bold mt-1 leading-tight" style={{ color: accent }}>{value}</p>
-      {hint && <p className="text-[11px] text-gray-400 mt-0.5 truncate">{hint}</p>}
+      {hint && <p className="text-[11px] text-[#b0a99e] mt-0.5 truncate">{hint}</p>}
     </div>
+  );
+}
+
+// Compact team stat card (mockup style): muted label, big mono number, sub line.
+function MiniStat({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
+  return (
+    <div className="bg-white border border-[#ece8e1] rounded-2xl px-[17px] py-[15px]">
+      <div className="text-xs text-[#9c968d]">{label}</div>
+      <div className="mono text-[26px] font-semibold mt-1 leading-none" style={color ? { color } : undefined}>{value}</div>
+      {sub && <div className="text-[11px] text-[#b0a99e] mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
+// Segmented view toggle pill used by "Who's doing what".
+function ViewTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "text-xs px-3 py-[5px] rounded-md font-semibold transition-colors",
+        active ? "text-primary bg-white shadow-[0_1px_2px_rgba(0,0,0,0.05)]" : "text-[#9c968d] hover:text-[#2c2925]",
+      )}
+    >
+      {children}
+    </button>
   );
 }
 
 function Card({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
   return (
-    <div className={cn("bg-white rounded-xl border border-gray-200 p-5", className)}>
-      <h2 className="font-semibold text-gray-800 mb-4">{title}</h2>
+    <div className={cn("bg-white rounded-xl border border-[#ece8e1] p-5", className)}>
+      <h2 className="font-semibold text-[#2c2925] mb-4">{title}</h2>
       {children}
     </div>
   );
 }
 
-function Pill({ tone, children }: { tone: "ok" | "danger"; children: React.ReactNode }) {
-  return (
-    <span className={cn("px-3 py-1.5 rounded-lg font-medium", tone === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-primary-soft text-primary")}>
-      {children}
-    </span>
-  );
-}
-
 function Empty({ text }: { text: React.ReactNode }) {
-  return <div className="text-center py-8 text-sm text-gray-400">{text}</div>;
+  return <div className="text-center py-8 text-sm text-[#b0a99e]">{text}</div>;
 }
 
 function Donut({ counts, total }: { counts: Record<TaskStatus, number>; total: number }) {
@@ -1697,8 +1747,8 @@ function Donut({ counts, total }: { counts: Record<TaskStatus, number>; total: n
             ))}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-3xl font-bold text-gray-900">{total}</span>
-          <span className="text-xs text-gray-400">tasks</span>
+          <span className="text-3xl font-bold text-[#1c1a17]">{total}</span>
+          <span className="text-xs text-[#b0a99e]">tasks</span>
         </div>
       </div>
     </div>
@@ -1711,8 +1761,8 @@ function Legend({ counts }: { counts: Record<TaskStatus, number> }) {
       {TASK_STATUSES.map((s) => (
         <div key={s} className="flex items-center gap-2 text-sm">
           <span className="w-2.5 h-2.5 rounded-full" style={{ background: STATUS_META[s].hex }} />
-          <span className="text-gray-600">{STATUS_META[s].label}</span>
-          <span className="text-gray-400 ml-auto">{counts[s]}</span>
+          <span className="text-[#6b665f]">{STATUS_META[s].label}</span>
+          <span className="text-[#b0a99e] ml-auto">{counts[s]}</span>
         </div>
       ))}
     </div>

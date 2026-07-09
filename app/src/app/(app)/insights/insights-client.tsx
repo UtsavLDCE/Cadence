@@ -7,6 +7,7 @@ import { WIP_THRESHOLD, type MemberInsights, type TeamInsights, type CategorySli
 import type { RangeKey } from "@/lib/insights-range";
 import { TONE, Stat, BlockedList, CategoryBreakdown, CategoryByPerson, buildCategoryColors } from "./insights-ui";
 import { TimelineSelector } from "./timeline-selector";
+import { ScopeToggle, type Scope } from "@/components/scope-toggle";
 
 type SortKey = "name" | "drift" | "fire" | "reopens" | "wip";
 
@@ -20,6 +21,7 @@ export function InsightsClient({
   rangeKey,
   rangeFrom,
   rangeTo,
+  scope,
 }: {
   team: TeamInsights;
   members: MemberInsights[];
@@ -30,6 +32,7 @@ export function InsightsClient({
   rangeKey: RangeKey;
   rangeFrom: string;
   rangeTo: string;
+  scope: Scope;
 }) {
   // Shared palette so a category reads the same colour in the team bar and each
   // person's bar below.
@@ -52,21 +55,24 @@ export function InsightsClient({
   });
 
   return (
-    <div>
-      <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
+    <div className="max-w-[1200px] mx-auto">
+      <div className="flex items-start justify-between mb-[22px] gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Productivity leaks</h1>
-          <p className="text-gray-500">
-            Where the team&apos;s time leaks for {rangeLabel.toLowerCase()}. Signals, not scores —
+          <h1 className="text-[28px] font-semibold tracking-[-0.02em] text-[#1c1a17] leading-tight">Productivity leaks</h1>
+          <p className="text-sm text-[#9c968d] mt-1.5 max-w-[560px]">
+            Where {scope === "team" ? "your team" : "the organization"}&apos;s time leaks for {rangeLabel.toLowerCase()}. Signals, not scores —
             use them to spot friction, not to rank people.
           </p>
         </div>
-        <TimelineSelector current={rangeKey} from={rangeFrom} to={rangeTo} />
+        <div className="flex flex-col items-end gap-2">
+          <ScopeToggle current={scope} />
+          <TimelineSelector current={rangeKey} from={rangeFrom} to={rangeTo} />
+        </div>
       </div>
 
       {/* Team headline strip — level + weekly trend so a manager reads direction,
           not just a point-in-time number. */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-8">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-[22px]">
         <Stat
           label="Estimate drift"
           value={team.estimate.pct != null ? `${team.estimate.pct}%` : "—"}
@@ -78,35 +84,35 @@ export function InsightsClient({
         <Stat
           label="Firefighting"
           value={team.fire.ratioPct != null ? `${team.fire.ratioPct}%` : "—"}
-          accent={team.fire.ratioPct != null && team.fire.ratioPct >= 25 ? "#f4502e" : "#1f2433"}
+          accent={team.fire.ratioPct != null && team.fire.ratioPct >= 25 ? "#c08a2d" : "#1c1a17"}
           hint={`${team.fire.unplannedCount} item${team.fire.unplannedCount === 1 ? "" : "s"} · ${fmtHours(team.fire.unplannedHours)} of ${fmtHours(team.fire.totalHours)}`}
           alert={team.fire.ratioPct != null && team.fire.ratioPct >= 25}
           trend={trends.firefighting}
-          trendColor="#f4502e"
+          trendColor="#c08a2d"
         />
         <Stat
           label="Deferrals"
           value={String(team.totalDeferrals)}
-          accent={team.totalDeferrals ? "#f5a623" : "#2bb673"}
+          accent={team.totalDeferrals ? "#c08a2d" : "#3f8a5b"}
           hint={`across ${team.memberCount} member${team.memberCount === 1 ? "" : "s"}`}
         />
         <Stat
           label="Chronic slips"
           value={String(team.chronicCount)}
-          accent={team.chronicCount ? "#f4502e" : "#2bb673"}
+          accent={team.chronicCount ? "#c0392b" : "#3f8a5b"}
           hint="people with a task slipping repeatedly"
           alert={team.chronicCount > 0}
         />
         <Stat
           label="Rework"
           value={String(team.totalReopens)}
-          accent={team.totalReopens ? "#f5a623" : "#2bb673"}
+          accent={team.totalReopens ? "#c08a2d" : "#3f8a5b"}
           hint="tasks reopened after DONE"
         />
         <Stat
           label="WIP overload"
           value={String(team.overloadedWip)}
-          accent={team.overloadedWip ? "#f4502e" : "#2bb673"}
+          accent={team.overloadedWip ? "#c0392b" : "#3f8a5b"}
           hint={`people with ≥${WIP_THRESHOLD} in progress`}
           alert={team.overloadedWip > 0}
         />
@@ -123,15 +129,15 @@ export function InsightsClient({
       <CategoryByPerson members={membersCategories} colorOf={colorOf} />
 
       {/* Per-member breakdown */}
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
-          <h2 className="font-semibold text-gray-800">By person</h2>
-          <label className="text-sm text-gray-500 flex items-center gap-2">
+      <div className="bg-white rounded-[16px] border border-[#ece8e1] p-[22px]">
+        <div className="flex items-center justify-between mb-3.5 gap-4 flex-wrap">
+          <h2 className="text-sm font-semibold text-[#1c1a17]">By person</h2>
+          <label className="text-xs text-[#9c968d] flex items-center gap-2">
             Sort by
             <select
               value={sort}
               onChange={(e) => setSort(e.target.value as SortKey)}
-              className="border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+              className="border border-[#e7e3dd] rounded-lg px-2 py-1 text-xs text-[#6b665f] focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
             >
               <option value="drift">Estimate drift</option>
               <option value="fire">Firefighting</option>
@@ -143,19 +149,19 @@ export function InsightsClient({
         </div>
 
         {members.length === 0 ? (
-          <p className="text-sm text-gray-400 py-6 text-center">No team members yet.</p>
+          <p className="text-sm text-[#b0a99e] py-6 text-center">No team members yet.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-xs text-gray-400 border-b border-gray-100">
-                  <th className="py-2 pr-4 font-medium">Member</th>
-                  <th className="py-2 px-3 font-medium" title="Actual ÷ estimated over completed work">Est. drift</th>
-                  <th className="py-2 px-3 font-medium" title="Logged effort ÷ planned effort">Utilization</th>
-                  <th className="py-2 px-3 font-medium" title="Share of effort spent on unplanned/interruption work">Firefighting</th>
-                  <th className="py-2 px-3 font-medium" title="Open work right now">WIP</th>
-                  <th className="py-2 px-3 font-medium" title="Deferrals in window + top reason">Deferrals</th>
-                  <th className="py-2 px-3 font-medium" title="Flow from the status log (accrues going forward)">Flow</th>
+                <tr className="text-left text-[10px] tracking-[0.08em] uppercase text-[#b0a99e] border-b border-[#ece8e1]">
+                  <th className="py-2.5 pr-4 font-medium">Member</th>
+                  <th className="py-2.5 px-3 font-medium" title="Actual ÷ estimated over completed work">Est. drift</th>
+                  <th className="py-2.5 px-3 font-medium" title="Logged effort ÷ planned effort">Utilization</th>
+                  <th className="py-2.5 px-3 font-medium" title="Share of effort spent on unplanned/interruption work">Firefighting</th>
+                  <th className="py-2.5 px-3 font-medium" title="Open work right now">WIP</th>
+                  <th className="py-2.5 px-3 font-medium" title="Deferrals in window + top reason">Deferrals</th>
+                  <th className="py-2.5 px-3 font-medium" title="Flow from the status log (accrues going forward)">Flow</th>
                 </tr>
               </thead>
               <tbody>
@@ -167,7 +173,7 @@ export function InsightsClient({
           </div>
         )}
 
-        <p className="text-[11px] text-gray-400 mt-4 leading-relaxed">
+        <p className="text-[11px] text-[#b0a99e] mt-4 leading-relaxed">
           Cycle / blocked / rework come from the status-transition log, which began recording on
           2026-07-01 — those columns fill in as work moves through statuses. Meetings and cross-team
           waiting happen between tasks, so a task tracker can&apos;t see them.
@@ -181,22 +187,22 @@ function MemberRow({ m }: { m: MemberInsights }) {
   const drift = m.estimate;
   const chronic = m.chronic;
   return (
-    <tr className="border-b border-gray-50 align-top">
-      <td className="py-3 pr-4">
-        <p className="font-medium text-gray-900">{m.name ?? m.email ?? "—"}</p>
-        {m.team && <p className="text-[11px] text-gray-400">{m.team}</p>}
+    <tr className="border-b border-[#f2eee7] align-top">
+      <td className="py-3.5 pr-4">
+        <p className="text-sm font-medium text-[#1c1a17]">{m.name ?? m.email ?? "—"}</p>
+        {m.team && <p className="text-[11px] text-[#b0a99e]">{m.team}</p>}
       </td>
 
       {/* Estimate drift */}
-      <td className="py-3 px-3">
+      <td className="py-3.5 px-3">
         {drift.sampleSize === 0 ? (
-          <span className="text-gray-300">—</span>
+          <span className="mono text-[#b0a99e]">—</span>
         ) : (
           <div>
-            <span className="font-semibold" style={{ color: TONE[drift.tone].color }}>
+            <span className="mono font-semibold" style={{ color: TONE[drift.tone].color }}>
               {drift.pct != null ? `${drift.pct}%` : "—"}
             </span>
-            <p className="text-[11px] text-gray-400">
+            <p className="mono text-[10px] text-[#b0a99e]">
               {fmtHours(drift.actualHours)} vs {fmtHours(drift.estimatedHours)} est · {drift.sampleSize}
             </p>
           </div>
@@ -204,31 +210,31 @@ function MemberRow({ m }: { m: MemberInsights }) {
       </td>
 
       {/* Utilization */}
-      <td className="py-3 px-3">
+      <td className="py-3.5 px-3">
         {m.util.plannedHours === 0 ? (
-          <span className="text-gray-300">—</span>
+          <span className="mono text-[#b0a99e]">—</span>
         ) : (
           <div>
-            <span className={cn("font-semibold", m.util.pct != null && m.util.pct < 60 ? "text-primary" : "text-gray-800")}>
+            <span className={cn("mono font-semibold", m.util.pct != null && m.util.pct < 60 ? "text-primary" : "text-[#1c1a17]")}>
               {m.util.pct != null ? `${m.util.pct}%` : "—"}
             </span>
-            <p className="text-[11px] text-gray-400">
-              {fmtHours(m.util.loggedHours)} logged / {fmtHours(m.util.plannedHours)} planned
+            <p className="mono text-[10px] text-[#b0a99e]">
+              {fmtHours(m.util.loggedHours)} / {fmtHours(m.util.plannedHours)} planned
             </p>
           </div>
         )}
       </td>
 
       {/* Firefighting */}
-      <td className="py-3 px-3">
+      <td className="py-3.5 px-3">
         {m.fire.totalHours === 0 ? (
-          <span className="text-gray-300">—</span>
+          <span className="mono text-[#b0a99e]">—</span>
         ) : (
           <div>
-            <span className={cn("font-semibold", m.fire.ratioPct != null && m.fire.ratioPct >= 25 ? "text-primary" : "text-gray-800")}>
+            <span className={cn("mono font-semibold", m.fire.ratioPct != null && m.fire.ratioPct >= 25 ? "text-[#c08a2d]" : "text-[#1c1a17]")}>
               {m.fire.ratioPct != null ? `${m.fire.ratioPct}%` : "—"}
             </span>
-            <p className="text-[11px] text-gray-400">
+            <p className="mono text-[10px] text-[#b0a99e]">
               {m.fire.unplannedCount} item{m.fire.unplannedCount === 1 ? "" : "s"} · {fmtHours(m.fire.unplannedHours)}
               {m.fire.interruptionLogCount > 0 && ` · ${m.fire.interruptionLogCount} logged`}
             </p>
@@ -237,32 +243,32 @@ function MemberRow({ m }: { m: MemberInsights }) {
       </td>
 
       {/* WIP */}
-      <td className="py-3 px-3">
+      <td className="py-3.5 px-3">
         <div className="flex items-center gap-1.5">
-          <span className={cn("font-semibold", m.wip.inProgress >= WIP_THRESHOLD ? "text-primary" : "text-gray-800")}>
+          <span className={cn("mono", m.wip.inProgress >= WIP_THRESHOLD ? "text-primary font-semibold" : "text-[#1c1a17]")}>
             {m.wip.inProgress}
           </span>
           {m.wip.onHold > 0 && (
-            <span className="text-[11px] bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded font-medium">
+            <span className="text-[10px] bg-[#eae6fb] text-[#6a5acd] px-1.5 py-0.5 rounded font-semibold">
               {m.wip.onHold} hold
             </span>
           )}
         </div>
-        <p className="text-[11px] text-gray-400">in progress</p>
+        <p className="text-[10px] text-[#b0a99e]">in progress</p>
       </td>
 
       {/* Deferrals + chronic */}
-      <td className="py-3 px-3">
+      <td className="py-3.5 px-3">
         {m.deferral.total === 0 ? (
-          <span className="text-gray-300">—</span>
+          <span className="mono text-[#b0a99e]">—</span>
         ) : (
           <div>
-            <span className="font-semibold text-gray-800">{m.deferral.total}</span>
+            <span className="mono font-semibold text-[#1c1a17]">{m.deferral.total}</span>
             {m.deferral.topCause && (
-              <span className="text-[11px] text-gray-500"> · mostly {DEFERRAL_CAUSE_META[m.deferral.topCause].label.toLowerCase()}</span>
+              <span className="text-[11px] text-[#9c968d]"> · mostly {DEFERRAL_CAUSE_META[m.deferral.topCause].label.toLowerCase()}</span>
             )}
             {chronic.length > 0 && (
-              <p className="text-[11px] text-primary mt-0.5" title={chronic.map((c) => `${c.title} ×${c.slips}`).join("\n")}>
+              <p className="text-[10px] text-[#c0392b] mt-0.5" title={chronic.map((c) => `${c.title} ×${c.slips}`).join("\n")}>
                 ⚠ {chronic.length} slipping repeatedly
               </p>
             )}
@@ -271,16 +277,16 @@ function MemberRow({ m }: { m: MemberInsights }) {
       </td>
 
       {/* Flow */}
-      <td className="py-3 px-3">
+      <td className="py-3.5 px-3">
         {m.flow.sampleSize === 0 && m.flow.avgBlockedHours == null && m.flow.reopens === 0 && m.blocked.length === 0 ? (
-          <span className="text-[11px] text-gray-300">accruing…</span>
+          <span className="text-[11px] text-[#b0a99e]">accruing…</span>
         ) : (
-          <div className="text-[11px] text-gray-500 space-y-0.5">
-            {m.flow.avgCycleHours != null && <p>cycle {fmtHours(m.flow.avgCycleHours)}</p>}
-            {m.flow.avgBlockedHours != null && <p className="text-violet-600">blocked {fmtHours(m.flow.avgBlockedHours)}</p>}
-            {m.flow.reopens > 0 && <p className="text-primary">{m.flow.reopens} reopened</p>}
+          <div className="text-[11px] text-[#6b665f] space-y-0.5">
+            {m.flow.avgCycleHours != null && <p className="mono">cycle {fmtHours(m.flow.avgCycleHours)}</p>}
+            {m.flow.avgBlockedHours != null && <p className="mono text-[#6a5acd]">blocked {fmtHours(m.flow.avgBlockedHours)}</p>}
+            {m.flow.reopens > 0 && <p className="mono text-primary">{m.flow.reopens} reopened</p>}
             {m.blocked.length > 0 && (
-              <p className="text-violet-600" title={m.blocked.map((b) => `${b.blockedOn} ×${b.count}`).join("\n")}>
+              <p className="text-[#6a5acd]" title={m.blocked.map((b) => `${b.blockedOn} ×${b.count}`).join("\n")}>
                 waiting on {m.blocked[0].blockedOn}
                 {m.blocked.length > 1 && ` +${m.blocked.length - 1}`}
               </p>

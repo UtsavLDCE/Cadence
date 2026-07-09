@@ -119,7 +119,7 @@ export function TagInput({
     <div ref={boxRef} className={cn("relative", className)}>
       <div
         className={cn(
-          "flex flex-wrap items-center gap-1 border border-gray-200 rounded-lg px-2 py-1.5 bg-white min-h-[38px] focus-within:ring-2 focus-within:ring-[#f4502e55]",
+          "flex flex-wrap items-center gap-1 border border-[#ece8e1] rounded-lg px-2 py-1.5 bg-white min-h-[38px] focus-within:ring-2 focus-within:ring-[#e0533a55]",
           disabled && "opacity-50 pointer-events-none",
         )}
       >
@@ -162,7 +162,7 @@ export function TagInput({
       </div>
 
       {open && (query !== "" || matches.length > 0) && (
-        <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg py-1 max-h-52 overflow-auto">
+        <div className="absolute z-20 mt-1 w-full bg-white border border-[#ece8e1] rounded-lg shadow-lg py-1 max-h-52 overflow-auto">
           {matches.map((t) => (
             <button
               key={t.id}
@@ -171,7 +171,7 @@ export function TagInput({
                 add(t);
                 setOpen(true);
               }}
-              className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+              className="w-full text-left px-3 py-1.5 text-xs text-[#4a453e] hover:bg-[#f6f4f1]"
             >
               #{t.name}
             </button>
@@ -187,7 +187,7 @@ export function TagInput({
             </button>
           )}
           {matches.length === 0 && query === "" && (
-            <p className="px-3 py-1.5 text-xs text-gray-400">Type to search or create a tag.</p>
+            <p className="px-3 py-1.5 text-xs text-[#b0a99e]">Type to search or create a tag.</p>
           )}
         </div>
       )}

@@ -37,13 +37,11 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#fdece7] to-[#f7d7cd]">
       <div className="bg-white rounded-2xl shadow-lg p-10 w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-            </svg>
+          <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center mx-auto mb-4 text-white font-bold text-[32px]">
+            C
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Cadence</h1>
-          <p className="text-gray-500 mt-1 text-sm">Stay on the goal. Catch the drift.</p>
+          <h1 className="text-2xl font-semibold tracking-[-0.01em] text-[#1c1a17]">Cadence</h1>
+          <p className="text-[#9c968d] mt-1 text-sm">Stay on the goal. Catch the drift.</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -54,7 +52,7 @@ export default function LoginPage() {
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="email">
+            <label className="block text-sm font-medium text-[#4a453e] mb-1" htmlFor="email">
               Email
             </label>
             <input
@@ -63,13 +61,13 @@ export default function LoginPage() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#f4502e88]"
+              className="w-full border border-[#ddd8d0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#e0533a88]"
               placeholder="you@company.com"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="password">
+            <label className="block text-sm font-medium text-[#4a453e] mb-1" htmlFor="password">
               Password
             </label>
             <input
@@ -78,7 +76,7 @@ export default function LoginPage() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#f4502e88]"
+              className="w-full border border-[#ddd8d0] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#e0533a88]"
               placeholder="••••••••"
             />
           </div>
@@ -92,7 +90,7 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p className="text-center text-sm text-gray-500 mt-6">
+        <p className="text-center text-sm text-[#9c968d] mt-6">
           Don&apos;t have an account?{" "}
           <Link href="/register" className="text-primary hover:underline font-medium">
             Register

@@ -37,13 +37,13 @@ export default async function TasksPage() {
   return (
     <div>
       <div className="mb-6">
-        <h1 className="text-xl font-bold text-gray-900">Task List</h1>
-        <p className="text-sm text-gray-500 mt-0.5">
+        <h1 className="text-[28px] font-semibold tracking-[-0.02em] text-[#1c1a17]">Task List</h1>
+        <p className="text-sm text-[#9c968d] mt-0.5">
           Every task across the team. Filter by owner, status, priority, or text — defaults to hiding completed work.
         </p>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
+      <div className="bg-white rounded-xl border border-[#ece8e1] p-5">
         <AllTasksView
           allTasks={JSON.parse(JSON.stringify(allTasks))}
           members={JSON.parse(JSON.stringify(members))}

@@ -124,11 +124,19 @@ export function TasksClient({
 
   // Time-of-day greeting. Set after mount so server/client render match (the
   // server's clock could differ from the viewer's), avoiding a hydration warning.
-  const [greeting, setGreeting] = useState("");
+  // Greeting + header date label are read from the viewer's clock, so they're set
+  // after mount (server/client time can differ) to avoid a hydration mismatch.
+  const [clock, setClock] = useState<{ greeting: string; dateLabel: string }>({ greeting: "", dateLabel: "" });
   useEffect(() => {
-    const h = new Date().getHours();
-    setGreeting(h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening");
+    const d = new Date();
+    const h = d.getHours();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount-only client clock; must run post-hydration
+    setClock({
+      greeting: h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening",
+      dateLabel: d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }).toUpperCase(),
+    });
   }, []);
+  const { greeting, dateLabel } = clock;
 
   const heroName = userName ? userName.split(" ")[0] : "";
 
@@ -245,7 +253,8 @@ export function TasksClient({
   const totalActual = tasks.reduce((s, t) => s + (t.actualHours ?? 0), 0);
   const doneTasks = tasks.filter((t) => t.status === "DONE");
   const doneCount = doneTasks.length;
-  const progress = tasks.length ? Math.round((doneCount / tasks.length) * 100) : 0;
+  // Share of estimated effort already logged — fills the dark "Today's goal" bar.
+  const effortPct = totalEstimate > 0 ? Math.min(100, Math.round((totalActual / totalEstimate) * 100)) : 0;
   const overBy = totalEstimate - WORKDAY_HOURS;
 
   // Planning accuracy for today — estimate-vs-actual over completed tasks only.
@@ -296,14 +305,28 @@ export function TasksClient({
       ? "wrap"
       : "execute";
 
+  // Headline shown in the dark "Today's goal" hero, per guided state.
+  const heroHeadline =
+    heroState === "plan-empty"
+      ? "Let’s plan your day"
+      : heroState === "plan-ready"
+        ? "Ready to start? Lock in your plan."
+        : heroState === "execute"
+          ? focusTask
+            ? focusTask.title
+            : "Keep the momentum going"
+          : heroState === "wrap"
+            ? "🎉 You cleared today’s plan!"
+            : "Your day is locked";
+
   // Today's goal as a checklist of the tasks you've lined up. Uncheck any you're
   // not committing to today — they move to your queue when you submit.
   const plannableTasks = tasks.filter((t) => !t.deferredToDate);
   const goalChecklist = plannableTasks.length > 0 && (
     <div className="mt-4">
-      <p className="text-xs font-medium text-gray-600">
+      <p className="text-xs font-medium text-[#6b665f]">
         Today&apos;s goal{" "}
-        <span className="font-normal text-gray-400">— uncheck anything you&apos;re not committing to; it moves to your queue</span>
+        <span className="font-normal text-[#b0a99e]">— uncheck anything you&apos;re not committing to; it moves to your queue</span>
       </p>
       <div className="mt-2 space-y-1.5">
         {plannableTasks.map((t) => {
@@ -314,13 +337,13 @@ export function TasksClient({
                 type="checkbox"
                 checked={on}
                 onChange={() => toggleGoalItem(t.id)}
-                className="h-4 w-4 rounded border-gray-300 accent-[#f4502e] focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+                className="h-4 w-4 rounded border-[#ddd8d0] accent-[#e0533a] focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
               />
-              <span className={cn("text-sm break-words", on ? "text-gray-800" : "text-gray-400 line-through")}>
+              <span className={cn("text-sm break-words", on ? "text-[#2c2925]" : "text-[#b0a99e] line-through")}>
                 {t.title}
               </span>
               {t.estimatedHours != null && (
-                <span className="text-xs text-gray-400 shrink-0">· {fmtHours(t.estimatedHours)}</span>
+                <span className="text-xs text-[#b0a99e] shrink-0">· {fmtHours(t.estimatedHours)}</span>
               )}
             </label>
           );
@@ -547,11 +570,11 @@ export function TasksClient({
   return (
     <div className="space-y-5">
       {overplanned && (
-        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-4 py-3 text-sm">
+        <div className="flex items-start gap-3 bg-[#fdf7ec] border border-[#f0e2c4] text-[#a8791f] rounded-xl px-4 py-3 text-sm">
           <span className="mt-0.5 text-base leading-none">⚠️</span>
           <div>
             <p className="font-semibold">You&apos;re overplanning.</p>
-            <p className="text-amber-700">
+            <p className="text-[#c08a2d]">
               You&apos;ve planned <span className="font-medium">{fmtHours(totalEstimate)}</span> of work, but a day only holds about {WORKDAY_HOURS}h.
               That&apos;s {fmtHours(overBy)} more than you can realistically do — trim a task or move it to another day.
             </p>
@@ -559,11 +582,18 @@ export function TasksClient({
         </div>
       )}
 
-      {/* Guidance hero — orients the member: what phase they're in and exactly what
-          to do next. This is the "I know what to do the moment I land here" surface. */}
-      <section className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        {/* Phase stepper */}
-        <div className="flex items-stretch text-xs font-medium border-b border-gray-100">
+      {/* Header — title, date, and the Plan → Do → Wrap phase indicator */}
+      <div className="flex items-end justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-[28px] font-semibold tracking-[-0.02em] text-[#1c1a17] leading-none">My Day</h1>
+          <div className="mono text-xs tracking-[0.06em] text-[#b0a99e] mt-1.5">
+            {dateLabel}
+            {dateLabel && " · "}CUTOFF {cutoffTime}
+          </div>
+        </div>
+        {/* Phase pills mirror the guided state and advance automatically as the day
+            moves plan → execute → wrap, so they read as status, not navigation. */}
+        <div className="flex gap-2">
           {STEPS.map((s, i) => {
             const active = s.key === phase;
             const passed = STEP_ORDER.indexOf(phase) > i;
@@ -571,14 +601,14 @@ export function TasksClient({
               <div
                 key={s.key}
                 className={cn(
-                  "flex-1 px-2 py-2.5 flex items-center gap-2 justify-center border-r border-gray-100 last:border-r-0",
-                  active ? "bg-primary-soft text-primary" : passed ? "text-emerald-600" : "text-gray-400",
+                  "flex items-center gap-2 border border-[#ece8e1] rounded-[10px] px-3.5 py-2 text-[13px]",
+                  active ? "bg-primary-soft text-primary font-semibold" : "bg-white text-[#9c968d] font-medium",
                 )}
               >
                 <span
                   className={cn(
-                    "w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0",
-                    active ? "bg-primary text-white" : passed ? "bg-emerald-500 text-white" : "bg-gray-100 text-gray-400",
+                    "mono w-[18px] h-[18px] rounded-full inline-flex items-center justify-center text-[11px] shrink-0",
+                    active ? "bg-primary text-white" : passed ? "bg-[#3f8a5b] text-white" : "bg-[#eee9e1] text-[#b0a99e]",
                   )}
                 >
                   {passed ? "✓" : i + 1}
@@ -588,221 +618,171 @@ export function TasksClient({
             );
           })}
         </div>
+      </div>
 
-        <div className="p-5">
-          {greeting && (
-            <p className="text-xs text-gray-400 mb-1">
-              {greeting}
-              {heroName ? `, ${heroName}` : ""}.
-            </p>
-          )}
+      {/* Main split: focused work column + supporting sidebar */}
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_360px] gap-[22px] items-start">
+        <div className="min-w-0 flex flex-col gap-4">
 
-          {heroState === "plan-empty" && (
-            <>
-              <h2 className="text-lg font-bold text-gray-900">Let&apos;s plan your day</h2>
-              <p className="text-sm text-gray-500 mt-1">
-                Start by adding the tasks you&apos;ll focus on today — pull from <span className="font-medium text-gray-700">your queue</span> below,
-                bring forward <span className="font-medium text-gray-700">overdue work</span>, or add something new. When the list looks right, lock it in.
+          {/* Dark "Today's goal" hero — orients the member and shows effort logged */}
+          <div className="bg-[#1c1a17] rounded-2xl p-5 sm:p-6">
+            {greeting && (
+              <p className="text-xs text-[#8f887e] mb-2">
+                {greeting}
+                {heroName ? `, ${heroName}` : ""}.
               </p>
-            </>
-          )}
-
-          {heroState === "plan-ready" && (
-            <>
-              <h2 className="text-lg font-bold text-gray-900">Ready to start? Lock in your plan.</h2>
-              <p className="text-sm text-gray-500 mt-1">
-                You&apos;ve lined up <span className="font-medium text-gray-700">{tasks.length} {tasks.length === 1 ? "task" : "tasks"}</span> for about{" "}
-                <span className="font-medium text-gray-700">{fmtHours(totalEstimate || null)}</span>. Once you submit, the list is locked for the day —
-                you can still update status, effort, and notes, or move a task to another day.
-              </p>
-              {overplanned && (
-                <p className="text-sm text-amber-700 mt-2">
-                  ⚠️ That&apos;s {fmtHours(overBy)} over a ~{WORKDAY_HOURS}h day. Consider trimming or moving a task before you start.
-                </p>
-              )}
-              {goalChecklist}
-              <button
-                type="button"
-                onClick={submitPlan}
-                disabled={submitting}
-                className="mt-4 bg-primary hover:bg-primary-hover disabled:opacity-50 text-white font-semibold text-sm px-5 py-2.5 rounded-lg transition-colors"
-              >
-                {submitting ? "Submitting…" : "Submit & start my day →"}
-              </button>
-            </>
-          )}
-
-          {heroState === "execute" && (
-            <>
-              <p className="text-xs font-semibold uppercase tracking-wide text-primary">Up next</p>
-              <h2 className="text-lg font-bold text-gray-900 mt-0.5 break-words">
-                {focusTask ? focusTask.title : "Keep the momentum going"}
-              </h2>
-              <p className="text-sm text-gray-500 mt-1">
-                {doneCount} of {tasks.length} done · {fmtHours(totalActual || null)} logged ·{" "}
-                <span className="font-medium text-gray-700">{remaining} {remaining === 1 ? "task" : "tasks"} to go</span>
-                {remainingHours > 0 && <> · ≈{fmtHours(remainingHours)} of work left</>}.
-              </p>
-              {focusTask && (
-                <div className="mt-4 flex items-center gap-3 flex-wrap">
-                  {focusTask.status === "IN_PROGRESS" ? (
-                    <button
-                      type="button"
-                      // One-tap done: if no actual is logged yet, default it to the
-                      // estimate so effort data stays dense without extra typing.
-                      onClick={() =>
-                        patch(focusTask.id, {
-                          status: "DONE",
-                          ...(focusTask.actualHours == null && focusTask.estimatedHours != null
-                            ? { actualHours: focusTask.estimatedHours }
-                            : {}),
-                        })
-                      }
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm px-5 py-2.5 rounded-lg transition-colors"
-                    >
-                      Mark done ✓
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => patch(focusTask.id, { status: "IN_PROGRESS" })}
-                      className="bg-primary hover:bg-primary-hover text-white font-semibold text-sm px-5 py-2.5 rounded-lg transition-colors"
-                    >
-                      Start this task →
-                    </button>
-                  )}
-                  <span className="text-xs text-gray-400">
-                    {focusTask.status === "IN_PROGRESS"
-                      ? focusTask.actualHours == null && focusTask.estimatedHours != null
-                        ? `In progress · marks done and logs ${fmtHours(focusTask.estimatedHours)}`
-                        : "In progress · your current focus"
-                      : overrideFocus
-                        ? "Picked to start next"
-                        : "Highest priority left — start here"}
-                  </span>
-
-                  {/* Skip the hero to another task so you can start any task from
-                      here, not just the auto-selected one. */}
-                  {actionable.length > 1 && (
-                    <div className="flex items-center gap-1 ml-auto">
-                      <button
-                        type="button"
-                        onClick={() => skipFocus(-1)}
-                        className="w-7 h-7 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:border-primary hover:text-primary transition-colors"
-                        title="Previous task"
-                      >
-                        ←
-                      </button>
-                      <span className="text-xs text-gray-400 tabular-nums px-1" title="Position in your remaining tasks">
-                        {focusIndex + 1} of {actionable.length}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => skipFocus(1)}
-                        className="text-xs font-medium text-gray-600 hover:text-primary flex items-center gap-1 rounded-lg border border-gray-200 hover:border-primary px-2.5 h-7 transition-colors"
-                        title="Skip to the next task"
-                      >
-                        Next task →
-                      </button>
-                    </div>
-                  )}
+            )}
+            <div className="mono text-[11px] tracking-[0.14em] uppercase text-[#8f887e]">
+              {heroState === "execute" ? "Up next" : "Today’s goal"}
+            </div>
+            <div className="text-[18px] font-medium leading-snug mt-2 text-white break-words">{heroHeadline}</div>
+            {tasks.length > 0 && (
+              <div className="flex items-center gap-3.5 mt-4">
+                <div className="flex-1 h-1.5 rounded-full bg-[#2c2925] overflow-hidden">
+                  <div className="h-full bg-primary bar-fill" style={{ width: `${effortPct}%` }} />
                 </div>
-              )}
-            </>
-          )}
+                <span className="mono text-xs text-[#cfc8bd] whitespace-nowrap">{effortPct}% of planned effort logged</span>
+              </div>
+            )}
+          </div>
 
-          {heroState === "wrap" && (
-            <>
-              <h2 className="text-lg font-bold text-gray-900">🎉 You cleared today&apos;s plan!</h2>
-              <p className="text-sm text-gray-500 mt-1">
+          {/* Phase guidance + actions — the paragraph and buttons for the current state */}
+          <div className="bg-white rounded-2xl border border-[#ece8e1] p-5">
+            {heroState === "plan-empty" && (
+              <p className="text-sm text-[#9c968d]">
+                Start by adding the tasks you&apos;ll focus on today — pull from{" "}
+                <span className="font-medium text-[#4a453e]">your queue</span>, bring forward{" "}
+                <span className="font-medium text-[#4a453e]">overdue work</span>, or add something new below. When the list looks right, lock it in.
+              </p>
+            )}
+
+            {heroState === "plan-ready" && (
+              <>
+                <p className="text-sm text-[#9c968d]">
+                  You&apos;ve lined up <span className="font-medium text-[#4a453e]">{tasks.length} {tasks.length === 1 ? "task" : "tasks"}</span> for about{" "}
+                  <span className="font-medium text-[#4a453e]">{fmtHours(totalEstimate || null)}</span>. Once you submit, the list is locked for the day —
+                  you can still update status, effort, and notes, or move a task to another day.
+                </p>
+                {overplanned && (
+                  <p className="text-sm text-[#c08a2d] mt-2">
+                    ⚠️ That&apos;s {fmtHours(overBy)} over a ~{WORKDAY_HOURS}h day. Consider trimming or moving a task before you start.
+                  </p>
+                )}
+                {goalChecklist}
+                <button
+                  type="button"
+                  onClick={submitPlan}
+                  disabled={submitting}
+                  className="mt-4 bg-primary hover:bg-primary-hover disabled:opacity-50 text-white font-semibold text-sm px-5 py-2.5 rounded-lg transition-colors"
+                >
+                  {submitting ? "Submitting…" : "Submit & start my day →"}
+                </button>
+              </>
+            )}
+
+            {heroState === "execute" && (
+              <>
+                <p className="text-sm text-[#9c968d]">
+                  {doneCount} of {tasks.length} done · {fmtHours(totalActual || null)} logged ·{" "}
+                  <span className="font-medium text-[#4a453e]">{remaining} {remaining === 1 ? "task" : "tasks"} to go</span>
+                  {remainingHours > 0 && <> · ≈{fmtHours(remainingHours)} of work left</>}.
+                </p>
+                {focusTask && (
+                  <div className="mt-4 flex items-center gap-3 flex-wrap">
+                    {focusTask.status === "IN_PROGRESS" ? (
+                      <button
+                        type="button"
+                        // One-tap done: if no actual is logged yet, default it to the
+                        // estimate so effort data stays dense without extra typing.
+                        onClick={() =>
+                          patch(focusTask.id, {
+                            status: "DONE",
+                            ...(focusTask.actualHours == null && focusTask.estimatedHours != null
+                              ? { actualHours: focusTask.estimatedHours }
+                              : {}),
+                          })
+                        }
+                        className="bg-[#3f8a5b] hover:bg-[#357a4f] text-white font-semibold text-sm px-5 py-2.5 rounded-lg transition-colors"
+                      >
+                        Mark done ✓
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => patch(focusTask.id, { status: "IN_PROGRESS" })}
+                        className="bg-primary hover:bg-primary-hover text-white font-semibold text-sm px-5 py-2.5 rounded-lg transition-colors"
+                      >
+                        Start this task →
+                      </button>
+                    )}
+                    <span className="text-xs text-[#b0a99e]">
+                      {focusTask.status === "IN_PROGRESS"
+                        ? focusTask.actualHours == null && focusTask.estimatedHours != null
+                          ? `In progress · marks done and logs ${fmtHours(focusTask.estimatedHours)}`
+                          : "In progress · your current focus"
+                        : overrideFocus
+                          ? "Picked to start next"
+                          : "Highest priority left — start here"}
+                    </span>
+
+                    {/* Skip the hero to another task so you can start any task from
+                        here, not just the auto-selected one. */}
+                    {actionable.length > 1 && (
+                      <div className="flex items-center gap-1 ml-auto">
+                        <button
+                          type="button"
+                          onClick={() => skipFocus(-1)}
+                          className="w-7 h-7 flex items-center justify-center rounded-lg border border-[#ece8e1] text-[#9c968d] hover:border-primary hover:text-primary transition-colors"
+                          title="Previous task"
+                        >
+                          ←
+                        </button>
+                        <span className="text-xs text-[#b0a99e] tabular-nums px-1" title="Position in your remaining tasks">
+                          {focusIndex + 1} of {actionable.length}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => skipFocus(1)}
+                          className="text-xs font-medium text-[#6b665f] hover:text-primary flex items-center gap-1 rounded-lg border border-[#ece8e1] hover:border-primary px-2.5 h-7 transition-colors"
+                          title="Skip to the next task"
+                        >
+                          Next task →
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
+            {heroState === "wrap" && (
+              <p className="text-sm text-[#9c968d]">
                 All {tasks.length} {tasks.length === 1 ? "task" : "tasks"} done · {fmtHours(totalActual || null)} logged.
                 Did something unplanned come up? Log it below so your day reflects what really happened.
               </p>
-            </>
-          )}
+            )}
 
-          {heroState === "locked-empty" && (
-            <>
-              <h2 className="text-lg font-bold text-gray-900">Your day is locked</h2>
-              <p className="text-sm text-gray-500 mt-1">
+            {heroState === "locked-empty" && (
+              <p className="text-sm text-[#9c968d]">
                 No tasks were planned for today. If work comes up, log it below as you go so it&apos;s on the record.
               </p>
-            </>
-          )}
-        </div>
-      </section>
-
-      {/* Below the guidance hero, split into a focused main column (the work you act
-          on) and a supporting sidebar (overdue + backlog) so the widened layout keeps
-          attention on today's tasks instead of stretching one column across the screen. */}
-      <div className="grid lg:grid-cols-3 gap-5 items-start">
-        <div className="lg:col-span-2 space-y-5">
-      {/* Summary strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <Stat label="Planned" value={String(tasks.length)} />
-        <Stat label="Completed" value={`${doneCount}/${tasks.length || 0}`} />
-        <Stat label="Est. effort" value={fmtHours(totalEstimate || null)} />
-        <Stat label="Actual effort" value={fmtHours(totalActual || null)} />
-      </div>
-
-      <div className="bg-white rounded-xl border border-gray-200 p-2">
-        <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
-          <div className="h-full bar-fill bg-emerald-500" style={{ width: `${progress}%` }} />
-        </div>
-        <p className="text-xs text-gray-500 text-center mt-1.5">{progress}% of today&apos;s plan done</p>
-      </div>
-
-      {/* Planning accuracy — estimate vs actual on completed tasks, signed both ways.
-          Admin-only for now: members don't see their own estimation variance. */}
-      {isAdmin && (
-      <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-gray-900">Planning accuracy</p>
-          {accuracy.tone === "none" ? (
-            <p className="text-xs text-gray-400 mt-0.5">
-              Finish a task and log its actual hours to see how your estimate compared.
-            </p>
-          ) : (
-            <p className="text-xs text-gray-500 mt-0.5">
-              Estimated {fmtHours(estDone)} · Actual {fmtHours(actDone)} on completed work
-            </p>
-          )}
-        </div>
-        {accuracy.tone !== "none" && (
-          <div className="text-right shrink-0">
-            <span
-              className={cn(
-                "text-xs font-medium rounded px-2 py-0.5",
-                accuracy.tone === "ok"
-                  ? "bg-emerald-50 text-emerald-700"
-                  : "bg-amber-50 text-amber-700",
-              )}
-            >
-              {accuracy.tone === "under" && "⚠ "}
-              {accuracy.label}
-            </span>
-            {accuracy.pct !== null && (
-              <p className="text-xs text-gray-400 mt-1">{accuracy.pct}% of estimate</p>
             )}
           </div>
-        )}
-      </div>
-      )}
 
       {/* Add task — set the morning plan (hidden once the plan is locked) */}
       {!submitted && (
-      <form onSubmit={addTask} className="bg-white rounded-xl border border-gray-200 p-4 flex flex-col sm:flex-row gap-3">
+      <form onSubmit={addTask} className="bg-white rounded-xl border border-[#ece8e1] p-4 flex flex-col sm:flex-row gap-3">
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="What will you work on today?"
-          className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+          className="flex-1 border border-[#ece8e1] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
         />
         <select
           value={priority}
           onChange={(e) => setPriority(e.target.value as Priority)}
           title="Priority"
-          className="border border-gray-200 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+          className="border border-[#ece8e1] rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
         >
           {PRIORITIES.map((p) => (
             <option key={p} value={p}>{PRIORITY_META[p].label}</option>
@@ -832,9 +812,9 @@ export function TasksClient({
             onChange={(e) => setEstimate(e.target.value)}
             placeholder="Est.*"
             title="An effort estimate is required"
-            className="w-20 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+            className="w-20 border border-[#ece8e1] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
           />
-          <span className="text-sm text-gray-400">h</span>
+          <span className="text-sm text-[#b0a99e]">h</span>
         </div>
         <button
           type="submit"
@@ -846,16 +826,16 @@ export function TasksClient({
       </form>
       )}
 
-      {/* Unplanned work — log something that already happened as a done task.
-          Available even after the plan is locked: interruptions come up mid-day. */}
-      <UnplannedWork onLog={logDone} todayStr={todayStr} categories={categories} onCreateCategory={createCategory} allTags={allTags} onCreateTag={createTag} />
-
       {error && <p className="text-sm text-primary">{error}</p>}
 
-      {/* Checklist — grouped so the eye lands on live work first, with finished and
-          deferred work tucked below under quiet dividers instead of interleaved. */}
+      {/* Today's plan — the day's task list, grouped live → completed → deferred */}
+      <div>
+        <div className="flex items-center justify-between mb-2.5">
+          <span className="text-sm font-semibold text-[#1c1a17]">Today&apos;s plan{submitted ? " · locked" : ""}</span>
+          <span className="mono text-xs text-[#b0a99e]">{doneCount} of {tasks.length} done</span>
+        </div>
       {tasks.length === 0 ? (
-        <div className="text-center py-12 text-gray-400 bg-white rounded-xl border border-dashed border-gray-200">
+        <div className="text-center py-12 text-[#b0a99e] bg-white rounded-xl border border-dashed border-[#ece8e1]">
           <p className="text-lg">No tasks yet.</p>
           <p className="text-sm mt-1">Add the goals you want to achieve today.</p>
         </div>
@@ -941,11 +921,60 @@ export function TasksClient({
           )}
         </div>
       )}
+      </div>
 
+          {/* Came up unplanned — log off-plan work; also the record of why the plan slipped */}
+          <div>
+            <div className="flex items-center justify-between mb-2.5">
+              <span className="text-sm font-semibold text-[#1c1a17]">Came up unplanned</span>
+              <span className="text-xs text-[#b0a99e]">shows why the plan slipped</span>
+            </div>
+            <UnplannedWork onLog={logDone} todayStr={todayStr} categories={categories} onCreateCategory={createCategory} allTags={allTags} onCreateTag={createTag} />
+          </div>
         </div>
 
         {/* Supporting sidebar — context that feeds the plan without competing with it. */}
-        <aside className="space-y-5">
+        <aside className="flex flex-col gap-4 lg:sticky lg:top-[74px]">
+          {/* Today at a glance — the day's headline numbers */}
+          <div className="bg-white rounded-2xl border border-[#ece8e1] p-[18px]">
+            <div className="text-[13px] font-semibold text-[#1c1a17] mb-3.5">Today at a glance</div>
+            <div className="grid grid-cols-2 gap-3">
+              <Glance label="PLANNED" value={String(tasks.length)} />
+              <Glance label="DONE" value={String(doneCount)} sub={`/${tasks.length || 0}`} />
+              <Glance label="EST EFFORT" value={fmtHours(totalEstimate || null)} />
+              <Glance label="ACTUAL" value={fmtHours(totalActual || null)} accent />
+            </div>
+          </div>
+
+          {/* Planning accuracy — estimate vs actual on completed tasks. Admin-only. */}
+          {isAdmin && (
+            <div className="bg-white rounded-2xl border border-[#ece8e1] p-[18px]">
+              <p className="text-[13px] font-semibold text-[#1c1a17]">Planning accuracy</p>
+              {accuracy.tone === "none" ? (
+                <p className="text-xs text-[#9c968d] leading-relaxed mt-1.5">
+                  Finish a task and log its actual hours to see how your estimate compared.
+                </p>
+              ) : (
+                <>
+                  <p className="text-xs text-[#9c968d] mt-1.5">
+                    Estimated {fmtHours(estDone)} · Actual {fmtHours(actDone)} on completed work
+                  </p>
+                  <div className="mt-3 flex items-center gap-2 flex-wrap">
+                    <span
+                      className={cn(
+                        "text-xs font-medium rounded px-2 py-0.5",
+                        accuracy.tone === "ok" ? "bg-[#e9f4ec] text-[#357a4f]" : "bg-[#fdf7ec] text-[#c08a2d]",
+                      )}
+                    >
+                      {accuracy.tone === "under" && "⚠ "}
+                      {accuracy.label}
+                    </span>
+                    {accuracy.pct !== null && <span className="text-xs text-[#b0a99e]">{accuracy.pct}% of estimate</span>}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
       {/* Personal queue — overdue work from earlier days and parked backlog in one
           prioritizable list. Both carry into today when ready; overdue rows stay
           visible after submit as a read-only reference (carry is blocked server-side
@@ -964,7 +993,7 @@ export function TasksClient({
         </aside>
       </div>
 
-      <p className="text-xs text-gray-400 text-center">
+      <p className="text-xs text-[#b0a99e] text-center">
         Cutoff for the day&apos;s plan is {cutoffTime}. Set estimates in the morning, update actual effort when you wrap up.
       </p>
     </div>
@@ -1056,28 +1085,28 @@ function UnplannedWork({
     }
   }
 
-  const fieldCls = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#f4502e55]";
-  const labelCls = "block text-xs font-medium text-gray-600 mb-1";
+  const fieldCls = "w-full border border-[#ece8e1] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#e0533a55]";
+  const labelCls = "block text-xs font-medium text-[#6b665f] mb-1";
 
   return (
     <div className="space-y-1.5">
       {note && (
-        <p className="text-xs text-emerald-600 flex items-center gap-1 px-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+        <p className="text-xs text-[#3f8a5b] flex items-center gap-1 px-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-[#3f8a5b]" />
           {note}
         </p>
       )}
       <button
         type="button"
         onClick={() => { setNote(null); setOpen(true); }}
-        className="w-full text-left bg-white rounded-xl border border-dashed border-gray-200 px-4 py-3 text-sm text-gray-500 hover:border-primary hover:text-primary transition-colors"
+        className="w-full text-left bg-white rounded-xl border border-dashed border-[#ece8e1] px-4 py-3 text-sm text-[#9c968d] hover:border-primary hover:text-primary transition-colors"
       >
         ⚡ Something unplanned come up — today or an earlier day? Log it as done →
       </button>
 
       {open && (
         <div
-          className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 bg-gray-900/40 backdrop-blur-sm overflow-y-auto"
+          className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 bg-[#1c1a17]/40 backdrop-blur-sm overflow-y-auto"
           onMouseDown={(e) => { if (e.target === e.currentTarget) close(); }}
         >
           <form
@@ -1085,12 +1114,12 @@ function UnplannedWork({
             role="dialog"
             aria-modal="true"
             aria-label="Log unplanned work"
-            className="w-full max-w-lg my-8 bg-white rounded-2xl border border-gray-200 shadow-xl p-5 sm:p-6 space-y-4"
+            className="w-full max-w-lg my-8 bg-white rounded-2xl border border-[#ece8e1] shadow-xl p-5 sm:p-6 space-y-4"
           >
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-base font-semibold text-gray-900">⚡ Log unplanned work</h2>
-                <p className="text-xs text-gray-400 mt-1">
+                <h2 className="text-base font-semibold text-[#1c1a17]">⚡ Log unplanned work</h2>
+                <p className="text-xs text-[#b0a99e] mt-1">
                   A meeting, client call, cross-team discussion, or anything off-plan you already
                   finished. Logged as done on the day you pick — default today, or backdate it to
                   catch up on a missed earlier day.
@@ -1100,7 +1129,7 @@ function UnplannedWork({
                 type="button"
                 onClick={close}
                 aria-label="Close"
-                className="shrink-0 text-gray-400 hover:text-gray-600 text-xl leading-none px-1"
+                className="shrink-0 text-[#b0a99e] hover:text-[#6b665f] text-xl leading-none px-1"
               >
                 ×
               </button>
@@ -1152,7 +1181,7 @@ function UnplannedWork({
                     placeholder="Hours"
                     className={cn(fieldCls, "flex-1")}
                   />
-                  <span className="text-sm text-gray-400">h</span>
+                  <span className="text-sm text-[#b0a99e]">h</span>
                 </div>
               </div>
             </div>
@@ -1192,7 +1221,7 @@ function UnplannedWork({
               <button
                 type="button"
                 onClick={close}
-                className="text-sm text-gray-500 hover:text-gray-700 px-3 py-2"
+                className="text-sm text-[#9c968d] hover:text-[#4a453e] px-3 py-2"
               >
                 Cancel
               </button>
@@ -1249,9 +1278,9 @@ function OverdueRow({
   }
 
   return (
-    <div className="border border-amber-100 bg-amber-50/40 rounded-lg p-3 flex flex-col gap-2">
-      <div className="flex items-center gap-3">
-        <div className="flex-1 min-w-0">
+    <div className="border border-[#f8f0dd] bg-[#fdf7ec]/40 rounded-lg p-3 flex flex-col gap-2">
+      <div className="flex flex-wrap items-start gap-2">
+        <div className="w-full min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             {editingTitle ? (
               <span className="flex items-center gap-1 flex-1 min-w-[10rem]">
@@ -1264,14 +1293,14 @@ function OverdueRow({
                     if (e.key === "Escape") { e.preventDefault(); cancelTitle(); }
                   }}
                   aria-label="Edit task title"
-                  className="flex-1 min-w-0 text-sm font-medium text-gray-900 border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+                  className="flex-1 min-w-0 text-sm font-medium text-[#1c1a17] border border-[#ece8e1] rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
                 />
                 <button type="button" onClick={saveTitle} title="Save title" className="text-xs font-medium text-primary hover:opacity-80 shrink-0">Save</button>
-                <button type="button" onClick={cancelTitle} title="Cancel" className="text-xs text-gray-400 hover:text-gray-600 shrink-0">Cancel</button>
+                <button type="button" onClick={cancelTitle} title="Cancel" className="text-xs text-[#b0a99e] hover:text-[#6b665f] shrink-0">Cancel</button>
               </span>
             ) : (
               <>
-                <p className="text-sm font-medium text-gray-900 break-words">{t.title}</p>
+                <p className="text-sm font-medium text-[#1c1a17] break-words">{t.title}</p>
                 {/* Rename — offered only when the task's original day was never locked,
                     since the API rejects title edits on a submitted day. */}
                 {!t.locked && (
@@ -1280,7 +1309,7 @@ function OverdueRow({
                     onClick={() => { setTitleDraft(t.title); setEditingTitle(true); }}
                     title="Edit title"
                     aria-label="Edit task title"
-                    className="text-gray-300 hover:text-primary shrink-0 transition-colors"
+                    className="text-[#ddd8d0] hover:text-primary shrink-0 transition-colors"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -1292,11 +1321,11 @@ function OverdueRow({
             <span className={cn("text-[10px] font-semibold rounded px-1.5 py-0.5 shrink-0", PRIORITY_META[t.priority].badge)}>
               {PRIORITY_META[t.priority].label}
             </span>
-            <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 rounded px-1.5 py-0.5 shrink-0">
+            <span className="text-[10px] font-semibold text-[#c08a2d] bg-[#f8f0dd] rounded px-1.5 py-0.5 shrink-0">
               {daysLate}d overdue
             </span>
           </div>
-          <p className="text-xs text-gray-400 mt-0.5">Est. {fmtHours(t.estimatedHours)}</p>
+          <p className="text-xs text-[#b0a99e] mt-0.5">Est. {fmtHours(t.estimatedHours)}</p>
         </div>
         {/* Priority is editable even on a locked day (PATCH allows it), so an overdue
             task can be reprioritized within the merged list before pulling it forward. */}
@@ -1304,7 +1333,7 @@ function OverdueRow({
           value={t.priority}
           onChange={(e) => onPatch(t.id, { priority: e.target.value as Priority })}
           title="Priority"
-          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white shrink-0 focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+          className="text-xs border border-[#ece8e1] rounded-lg px-2 py-1.5 bg-white shrink-0 focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
         >
           {PRIORITIES.map((p) => (
             <option key={p} value={p}>{PRIORITY_META[p].label}</option>
@@ -1393,10 +1422,10 @@ function QueueSection({
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
+    <div className="bg-white rounded-xl border border-[#ece8e1] p-4 space-y-3">
       <div>
-        <h2 className="text-sm font-semibold text-gray-900">My queue</h2>
-        <p className="text-xs text-gray-400">
+        <h2 className="text-sm font-semibold text-[#1c1a17]">My queue</h2>
+        <p className="text-xs text-[#b0a99e]">
           {overdue.length > 0
             ? "Overdue work from earlier days and parked backlog, ranked by priority. Add any of it to today’s plan when you’re ready."
             : "Park future work here, then add it to today’s plan when you’re ready."}
@@ -1410,14 +1439,14 @@ function QueueSection({
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="Something to do later…"
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+          className="border border-[#ece8e1] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
         />
         <div className="flex items-center gap-2">
           <select
             value={priority}
             onChange={(e) => setPriority(e.target.value as Priority)}
             title="Priority"
-            className="border border-gray-200 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+            className="border border-[#ece8e1] rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
           >
             {PRIORITIES.map((p) => (
               <option key={p} value={p}>{PRIORITY_META[p].label}</option>
@@ -1433,14 +1462,14 @@ function QueueSection({
               onChange={(e) => setEstimate(e.target.value)}
               placeholder="Est.*"
               title="An effort estimate is required"
-              className="w-20 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+              className="w-20 border border-[#ece8e1] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
             />
-            <span className="text-sm text-gray-400">h</span>
+            <span className="text-sm text-[#b0a99e]">h</span>
           </div>
           <button
             type="submit"
             disabled={adding || !title.trim() || estimate === "" || Number(estimate) <= 0}
-            className="border border-gray-300 hover:bg-gray-50 disabled:opacity-50 text-gray-700 font-medium text-sm px-4 py-2 rounded-lg transition-colors ml-auto whitespace-nowrap"
+            className="border border-[#ddd8d0] hover:bg-[#f6f4f1] disabled:opacity-50 text-[#4a453e] font-medium text-sm px-4 py-2 rounded-lg transition-colors ml-auto whitespace-nowrap"
           >
             {adding ? "Adding…" : "Add to queue"}
           </button>
@@ -1450,7 +1479,7 @@ function QueueSection({
       {error && <p className="text-sm text-primary">{error}</p>}
 
       {entries.length === 0 ? (
-        <p className="text-sm text-gray-400 text-center py-4">Your queue is empty.</p>
+        <p className="text-sm text-[#b0a99e] text-center py-4">Your queue is empty.</p>
       ) : (
         <div className="space-y-2">
           {entries.map((e) =>
@@ -1524,9 +1553,9 @@ function QueueRow({
   }
 
   return (
-    <div className="border border-gray-100 rounded-lg p-3 flex flex-col gap-2">
-      <div className="flex items-center gap-3">
-        <div className="flex-1 min-w-0">
+    <div className="border border-[#f2eee7] rounded-lg p-3 flex flex-col gap-2">
+      <div className="flex flex-wrap items-start gap-2">
+        <div className="w-full min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             {editingTitle ? (
               <span className="flex items-center gap-1 flex-1 min-w-[10rem]">
@@ -1539,20 +1568,20 @@ function QueueRow({
                     if (e.key === "Escape") { e.preventDefault(); cancelTitle(); }
                   }}
                   aria-label="Edit backlog item title"
-                  className="flex-1 min-w-0 text-sm font-medium text-gray-900 border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+                  className="flex-1 min-w-0 text-sm font-medium text-[#1c1a17] border border-[#ece8e1] rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
                 />
                 <button type="button" onClick={saveTitle} title="Save title" className="text-xs font-medium text-primary hover:opacity-80 shrink-0">Save</button>
-                <button type="button" onClick={cancelTitle} title="Cancel" className="text-xs text-gray-400 hover:text-gray-600 shrink-0">Cancel</button>
+                <button type="button" onClick={cancelTitle} title="Cancel" className="text-xs text-[#b0a99e] hover:text-[#6b665f] shrink-0">Cancel</button>
               </span>
             ) : (
               <>
-                <p className="text-sm font-medium text-gray-900 break-words">{item.title}</p>
+                <p className="text-sm font-medium text-[#1c1a17] break-words">{item.title}</p>
                 <button
                   type="button"
                   onClick={() => { setTitleDraft(item.title); setEditingTitle(true); }}
                   title="Edit title"
                   aria-label="Edit backlog item title"
-                  className="text-gray-300 hover:text-primary shrink-0 transition-colors"
+                  className="text-[#ddd8d0] hover:text-primary shrink-0 transition-colors"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -1570,7 +1599,7 @@ function QueueRow({
             )}
           </div>
           <div className="flex items-center gap-1 mt-0.5">
-            <span className="text-xs text-gray-400">Est.</span>
+            <span className="text-xs text-[#b0a99e]">Est.</span>
             <input
               type="number"
               min="0.5"
@@ -1581,13 +1610,13 @@ function QueueRow({
               placeholder="—"
               title={needsEstimate ? "Set an estimate before adding this to today" : "Effort estimate (hours)"}
               className={cn(
-                "w-14 rounded px-1.5 py-0.5 text-xs border focus:outline-none focus:ring-2 focus:ring-[#f4502e55]",
-                needsEstimate ? "border-amber-300 bg-amber-50" : "border-gray-200",
+                "w-14 rounded px-1.5 py-0.5 text-xs border focus:outline-none focus:ring-2 focus:ring-[#e0533a55]",
+                needsEstimate ? "border-amber-300 bg-[#fdf7ec]" : "border-[#ece8e1]",
               )}
             />
-            <span className="text-xs text-gray-400">h</span>
+            <span className="text-xs text-[#b0a99e]">h</span>
             {needsEstimate && (
-              <span className="text-[10px] font-medium text-amber-700 ml-1">Set an estimate to add it to today</span>
+              <span className="text-[10px] font-medium text-[#c08a2d] ml-1">Set an estimate to add it to today</span>
             )}
           </div>
         </div>
@@ -1595,7 +1624,7 @@ function QueueRow({
           value={item.priority}
           onChange={(e) => onPatch(item.id, { priority: e.target.value as Priority })}
           title="Priority"
-          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white shrink-0 focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+          className="text-xs border border-[#ece8e1] rounded-lg px-2 py-1.5 bg-white shrink-0 focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
         >
           {PRIORITIES.map((p) => (
             <option key={p} value={p}>{PRIORITY_META[p].label}</option>
@@ -1616,7 +1645,7 @@ function QueueRow({
         <button
           type="button"
           onClick={() => onRemove(item.id)}
-          className="text-xs text-gray-300 hover:text-primary shrink-0"
+          className="text-xs text-[#ddd8d0] hover:text-primary shrink-0"
           title="Remove from queue"
         >
           ✕
@@ -1631,13 +1660,13 @@ function QueueRow({
           rows={2}
           maxLength={2000}
           placeholder="Add context or detail for later…"
-          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+          className="w-full border border-[#ece8e1] rounded-lg px-3 py-2 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
         />
       ) : (
         <button
           type="button"
           onClick={() => setNotesOpen(true)}
-          className="self-start text-xs text-gray-400 hover:text-primary"
+          className="self-start text-xs text-[#b0a99e] hover:text-primary"
         >
           + Add note
         </button>
@@ -1688,11 +1717,11 @@ function WorkLogPanel({
   }
 
   return (
-    <div className="bg-gray-50 border border-gray-100 rounded-lg p-3 flex flex-col gap-2">
+    <div className="bg-[#f6f4f1] border border-[#f2eee7] rounded-lg p-3 flex flex-col gap-2">
       <div className="flex items-center gap-2">
-        <span className="text-xs font-semibold text-gray-600">🕒 Work log</span>
+        <span className="text-xs font-semibold text-[#6b665f]">🕒 Work log</span>
         {task.actualHours != null && (
-          <span className="text-[11px] text-gray-400 tabular-nums">{fmtHours(task.actualHours)} total</span>
+          <span className="text-[11px] text-[#b0a99e] tabular-nums">{fmtHours(task.actualHours)} total</span>
         )}
       </div>
 
@@ -1700,13 +1729,13 @@ function WorkLogPanel({
         <div className="flex flex-col gap-1">
           {entries.map((w) => (
             <div key={w.id} className="flex items-center gap-2 text-xs">
-              <span className="text-gray-500 tabular-nums w-14 shrink-0">{fmtMoveDate(w.date)}</span>
-              <span className="font-medium text-gray-800 tabular-nums w-12 shrink-0">{fmtHours(w.hours)}</span>
-              {w.note && <span className="text-gray-500 truncate flex-1 min-w-0" title={w.note}>{w.note}</span>}
+              <span className="text-[#9c968d] tabular-nums w-14 shrink-0">{fmtMoveDate(w.date)}</span>
+              <span className="font-medium text-[#2c2925] tabular-nums w-12 shrink-0">{fmtHours(w.hours)}</span>
+              {w.note && <span className="text-[#9c968d] truncate flex-1 min-w-0" title={w.note}>{w.note}</span>}
               <button
                 type="button"
                 onClick={() => onDeleteWorkLog(task.id, w.id)}
-                className="text-gray-300 hover:text-primary shrink-0 ml-auto"
+                className="text-[#ddd8d0] hover:text-primary shrink-0 ml-auto"
                 title="Remove this entry"
                 aria-label="Remove work-log entry"
               >
@@ -1728,9 +1757,9 @@ function WorkLogPanel({
             onChange={(e) => setHours(e.target.value)}
             placeholder="Hrs"
             aria-label="Hours worked"
-            className="w-16 border border-gray-200 rounded-lg px-2 py-1 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+            className="w-16 border border-[#ece8e1] rounded-lg px-2 py-1 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
           />
-          <span className="text-xs text-gray-400">h</span>
+          <span className="text-xs text-[#b0a99e]">h</span>
         </div>
         <input
           type="date"
@@ -1738,7 +1767,7 @@ function WorkLogPanel({
           value={date}
           onChange={(e) => setDate(e.target.value)}
           aria-label="Day the work happened"
-          className="border border-gray-200 rounded-lg px-2 py-1 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+          className="border border-[#ece8e1] rounded-lg px-2 py-1 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
         />
         <input
           value={note}
@@ -1746,7 +1775,7 @@ function WorkLogPanel({
           maxLength={500}
           placeholder="What did you work on? (optional)"
           aria-label="Work-log note"
-          className="flex-1 min-w-[8rem] border border-gray-200 rounded-lg px-2 py-1 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+          className="flex-1 min-w-[8rem] border border-[#ece8e1] rounded-lg px-2 py-1 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
         />
         <button
           type="submit"
@@ -1768,11 +1797,16 @@ function fmtMoveDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric" });
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+// A single "Today at a glance" metric — mono label + big mono number, with an
+// optional muted suffix (e.g. the "/2" in "1/2") and an amber accent for actuals.
+function Glance({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: boolean }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 px-4 py-3">
-      <p className="text-xs text-gray-500">{label}</p>
-      <p className="text-xl font-bold text-gray-900 mt-0.5">{value}</p>
+    <div>
+      <div className="mono text-[10px] tracking-[0.08em] text-[#b0a99e]">{label}</div>
+      <div className={cn("mono text-xl font-semibold mt-0.5", accent ? "text-[#c08a2d]" : "text-[#1c1a17]")}>
+        {value}
+        {sub && <span className="text-[#c7c0b6]">{sub}</span>}
+      </div>
     </div>
   );
 }
@@ -1782,11 +1816,11 @@ function Stat({ label, value }: { label: string; value: string }) {
 function SectionDivider({ label, count, tone }: { label: string; count: number; tone: "emerald" | "amber" }) {
   return (
     <div className="flex items-center gap-2 pt-1">
-      <span className={cn("text-xs font-semibold uppercase tracking-wide", tone === "emerald" ? "text-emerald-600" : "text-amber-600")}>
+      <span className={cn("text-xs font-semibold uppercase tracking-wide", tone === "emerald" ? "text-[#3f8a5b]" : "text-amber-600")}>
         {label}
       </span>
-      <span className="text-[11px] text-gray-400 tabular-nums">{count}</span>
-      <div className="flex-1 h-px bg-gray-100" />
+      <span className="text-[11px] text-[#b0a99e] tabular-nums">{count}</span>
+      <div className="flex-1 h-px bg-[#f2eee7]" />
     </div>
   );
 }
@@ -1888,14 +1922,14 @@ function TaskRow({
   // render it as a muted audit row rather than an editable task.
   if (task.deferredToDate) {
     return (
-      <div className="bg-gray-50 rounded-xl border border-dashed border-gray-200 p-4 flex flex-col gap-1.5">
+      <div className="bg-[#f6f4f1] rounded-xl border border-dashed border-[#ece8e1] p-4 flex flex-col gap-1.5">
         <div className="flex items-center gap-2 flex-wrap">
-          <p className="text-sm font-medium text-gray-500 break-words flex-1 min-w-0">{task.title}</p>
-          <span className="text-xs font-medium text-amber-700 bg-amber-100 rounded px-2 py-0.5 shrink-0">
+          <p className="text-sm font-medium text-[#9c968d] break-words flex-1 min-w-0">{task.title}</p>
+          <span className="text-xs font-medium text-[#c08a2d] bg-[#f8f0dd] rounded px-2 py-0.5 shrink-0">
             Deferred → {fmtMoveDate(task.deferredToDate)}
           </span>
           {task.deferralCause && (
-            <span className="text-xs font-medium text-gray-600 bg-gray-200 rounded px-2 py-0.5 shrink-0">
+            <span className="text-xs font-medium text-[#6b665f] bg-[#ece8e1] rounded px-2 py-0.5 shrink-0">
               {DEFERRAL_CAUSE_META[task.deferralCause].label}
             </span>
           )}
@@ -1906,9 +1940,9 @@ function TaskRow({
           )}
           <TagBadges tags={task.tags} />
         </div>
-        <p className="text-xs text-gray-400">Est. {fmtHours(task.estimatedHours)} · planned today, carried forward.</p>
+        <p className="text-xs text-[#b0a99e]">Est. {fmtHours(task.estimatedHours)} · planned today, carried forward.</p>
         {task.deferralNote && (
-          <p className="text-xs text-gray-500 bg-white border border-gray-100 rounded-md px-2.5 py-1.5 whitespace-pre-wrap break-words">
+          <p className="text-xs text-[#9c968d] bg-white border border-[#f2eee7] rounded-md px-2.5 py-1.5 whitespace-pre-wrap break-words">
             {task.deferralNote}
           </p>
         )}
@@ -1922,7 +1956,7 @@ function TaskRow({
     <div
       className={cn(
         "bg-white rounded-xl border p-4 flex flex-col gap-3",
-        isFocus && !done ? "border-primary ring-2 ring-[#f4502e33]" : done ? "border-emerald-200" : "border-gray-200"
+        isFocus && !done ? "border-primary ring-2 ring-[#e0533a33]" : done ? "border-emerald-200" : "border-[#ece8e1]"
       )}
     >
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
@@ -1944,7 +1978,7 @@ function TaskRow({
                     if (e.key === "Escape") { e.preventDefault(); cancelTitle(); }
                   }}
                   aria-label="Edit task title"
-                  className="flex-1 min-w-0 text-sm font-medium text-gray-900 border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+                  className="flex-1 min-w-0 text-sm font-medium text-[#1c1a17] border border-[#ece8e1] rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
                 />
                 <button
                   type="button"
@@ -1958,14 +1992,14 @@ function TaskRow({
                   type="button"
                   onClick={cancelTitle}
                   title="Cancel"
-                  className="text-xs text-gray-400 hover:text-gray-600 shrink-0"
+                  className="text-xs text-[#b0a99e] hover:text-[#6b665f] shrink-0"
                 >
                   Cancel
                 </button>
               </span>
             ) : (
               <>
-                <p className={cn("text-sm font-medium text-gray-900 break-words", done && "line-through text-gray-400")}>
+                <p className={cn("text-sm font-medium text-[#1c1a17] break-words", done && "line-through text-[#b0a99e]")}>
                   {task.title}
                 </p>
                 {/* Edit title — offered only while the plan is unlocked, since the
@@ -1976,7 +2010,7 @@ function TaskRow({
                     onClick={() => { setTitleDraft(task.title); setEditingTitle(true); }}
                     title="Edit title"
                     aria-label="Edit task title"
-                    className="text-gray-300 hover:text-primary shrink-0 transition-colors"
+                    className="text-[#ddd8d0] hover:text-primary shrink-0 transition-colors"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -1995,7 +2029,7 @@ function TaskRow({
             )}
             <TagBadges tags={task.tags} />
           </div>
-          <p className="text-xs text-gray-400 mt-0.5">
+          <p className="text-xs text-[#b0a99e] mt-0.5">
             Est. {fmtHours(task.estimatedHours)}
             {task.actualHours != null && <> · Actual {fmtHours(task.actualHours)}</>}
           </p>
@@ -2015,7 +2049,7 @@ function TaskRow({
           value={task.priority}
           onChange={(e) => onPatch(task.id, { priority: e.target.value as Priority })}
           title="Priority"
-          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white shrink-0 focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+          className="text-xs border border-[#ece8e1] rounded-lg px-2 py-1.5 bg-white shrink-0 focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
         >
           {PRIORITIES.map((p) => (
             <option key={p} value={p}>{PRIORITY_META[p].label}</option>
@@ -2023,7 +2057,7 @@ function TaskRow({
         </select>
 
         {/* Status segmented control */}
-        <div className="flex rounded-lg border border-gray-200 overflow-hidden shrink-0">
+        <div className="flex rounded-lg border border-[#ece8e1] overflow-hidden shrink-0">
           {TASK_STATUSES.map((s) => {
             const active = task.status === s;
             const meta = STATUS_META[s];
@@ -2055,7 +2089,7 @@ function TaskRow({
                 }}
                 className={cn(
                   "px-2.5 py-1.5 text-xs font-medium transition-colors",
-                  active ? `${meta.badge}` : "text-gray-500 hover:bg-gray-50"
+                  active ? `${meta.badge}` : "text-[#9c968d] hover:bg-[#f6f4f1]"
                 )}
               >
                 {meta.label}
@@ -2068,11 +2102,11 @@ function TaskRow({
             becomes a read-only total (edit effort via the log below instead). */}
         {hasLog ? (
           <div
-            className="flex items-center gap-1 shrink-0 text-xs text-gray-500"
+            className="flex items-center gap-1 shrink-0 text-xs text-[#9c968d]"
             title="Total from your work log — edit effort by adding or removing entries below"
           >
-            <span className="font-medium text-gray-700 tabular-nums">{fmtHours(task.actualHours)}</span>
-            <span className="text-gray-400">logged</span>
+            <span className="font-medium text-[#4a453e] tabular-nums">{fmtHours(task.actualHours)}</span>
+            <span className="text-[#b0a99e]">logged</span>
           </div>
         ) : (
           <div className="flex items-center gap-1 shrink-0">
@@ -2086,10 +2120,10 @@ function TaskRow({
                 onPatch(task.id, { actualHours: actual === "" ? null : Number(actual) })
               }
               placeholder="Actual"
-              className="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+              className="w-16 border border-[#ece8e1] rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
               title="Actual effort spent (hours)"
             />
-            <span className="text-xs text-gray-400">h</span>
+            <span className="text-xs text-[#b0a99e]">h</span>
             {/* One-tap: copy the estimate into actual when nothing's logged yet. */}
             {task.estimatedHours != null && actual.trim() === "" && (
               <button
@@ -2098,7 +2132,7 @@ function TaskRow({
                   setActual(String(task.estimatedHours));
                   onPatch(task.id, { actualHours: task.estimatedHours });
                 }}
-                className="text-[11px] text-gray-400 hover:text-primary whitespace-nowrap"
+                className="text-[11px] text-[#b0a99e] hover:text-primary whitespace-nowrap"
                 title={`Log ${fmtHours(task.estimatedHours)} (your estimate) as actual`}
               >
                 = est
@@ -2114,7 +2148,7 @@ function TaskRow({
           <button
             type="button"
             onClick={() => onFocus(task.id)}
-            className="flex items-center gap-1 text-xs font-medium text-gray-400 hover:text-primary border border-gray-200 hover:border-primary rounded-lg px-2 py-1 shrink-0 transition-colors"
+            className="flex items-center gap-1 text-xs font-medium text-[#b0a99e] hover:text-primary border border-[#ece8e1] hover:border-primary rounded-lg px-2 py-1 shrink-0 transition-colors"
             title="Focus this task in “Up next”"
           >
             ◎ Focus
@@ -2126,7 +2160,7 @@ function TaskRow({
           <button
             type="button"
             onClick={() => setMoveOpen((o) => !o)}
-            className={cn("text-xs shrink-0", moveOpen ? "text-primary" : "text-gray-300 hover:text-primary")}
+            className={cn("text-xs shrink-0", moveOpen ? "text-primary" : "text-[#ddd8d0] hover:text-primary")}
             title={submitted ? "Defer to another day" : "Move to another day"}
           >
             ⇄
@@ -2147,7 +2181,7 @@ function TaskRow({
                 return;
               onRemove(task.id);
             }}
-            className="text-xs text-gray-300 hover:text-primary shrink-0"
+            className="text-xs text-[#ddd8d0] hover:text-primary shrink-0"
             title={submitted ? "Delete task (manager override)" : "Delete task"}
           >
             ✕
@@ -2157,21 +2191,21 @@ function TaskRow({
 
       {/* Move / defer picker */}
       {moveOpen && (
-        <div className="flex flex-col gap-2 bg-gray-50 border border-gray-100 rounded-lg p-3">
+        <div className="flex flex-col gap-2 bg-[#f6f4f1] border border-[#f2eee7] rounded-lg p-3">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-gray-500">{submitted ? "Defer to" : "Move to"}</span>
+            <span className="text-xs text-[#9c968d]">{submitted ? "Defer to" : "Move to"}</span>
             <input
               type="date"
               min={minMoveDate}
               value={moveDate}
               onChange={(e) => setMoveDate(e.target.value)}
-              className="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+              className="border border-[#ece8e1] rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
             />
             {submitted && (
               <select
                 value={moveCause}
                 onChange={(e) => setMoveCause(e.target.value as DeferralCause | "")}
-                className="border border-gray-200 rounded-lg px-2 py-1 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+                className="border border-[#ece8e1] rounded-lg px-2 py-1 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
                 title="Reason for deferring (required)"
               >
                 <option value="">Reason…*</option>
@@ -2199,7 +2233,7 @@ function TaskRow({
                 setMoveCause("");
                 setMoveNote("");
               }}
-              className="text-xs text-gray-400 hover:text-gray-600"
+              className="text-xs text-[#b0a99e] hover:text-[#6b665f]"
             >
               Cancel
             </button>
@@ -2212,9 +2246,9 @@ function TaskRow({
                 rows={2}
                 maxLength={500}
                 placeholder="Optional: add detail for your manager (what got in the way?)…"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs resize-y focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+                className="w-full border border-[#ece8e1] rounded-lg px-3 py-2 text-xs resize-y focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
               />
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-[#b0a99e]">
                 This task stays on today&apos;s record as deferred, so your manager sees what was planned vs. done — and why.
               </p>
             </>
@@ -2224,7 +2258,7 @@ function TaskRow({
 
       {/* HOLD-reason capture — why this stalled and who it's waiting on */}
       {holdOpen && (
-        <div className="flex flex-col gap-2 bg-violet-50 border border-violet-100 rounded-lg p-3">
+        <div className="flex flex-col gap-2 bg-violet-50 border border-[#eae6fb] rounded-lg p-3">
           <p className="text-xs font-medium text-violet-800">Putting this on hold — what&apos;s it waiting on?</p>
           <div className="flex flex-col sm:flex-row gap-2">
             <input
@@ -2247,7 +2281,7 @@ function TaskRow({
             <button
               type="button"
               onClick={confirmHold}
-              className="bg-violet-600 hover:bg-violet-700 text-white font-medium text-xs px-3 py-1 rounded-lg transition-colors"
+              className="bg-violet-600 hover:bg-[#6a5acd] text-white font-medium text-xs px-3 py-1 rounded-lg transition-colors"
             >
               Put on hold
             </button>
@@ -2258,11 +2292,11 @@ function TaskRow({
                 setHoldReason("");
                 setHoldBlockedOn("");
               }}
-              className="text-xs text-gray-400 hover:text-gray-600"
+              className="text-xs text-[#b0a99e] hover:text-[#6b665f]"
             >
               Cancel
             </button>
-            <span className="text-[11px] text-violet-500">Naming the blocker turns stalled time into a signal your manager can act on.</span>
+            <span className="text-[11px] text-[#6a5acd]">Naming the blocker turns stalled time into a signal your manager can act on.</span>
           </div>
         </div>
       )}
@@ -2279,7 +2313,7 @@ function TaskRow({
         <button
           type="button"
           onClick={() => setTagsOpen(true)}
-          className="self-start text-xs text-gray-400 hover:text-primary"
+          className="self-start text-xs text-[#b0a99e] hover:text-primary"
         >
           {task.tags.length > 0 ? "🏷 Edit tags" : "+ Add tags"}
         </button>
@@ -2299,7 +2333,7 @@ function TaskRow({
         <button
           type="button"
           onClick={() => setLogOpen(true)}
-          className="self-start text-xs text-gray-400 hover:text-primary"
+          className="self-start text-xs text-[#b0a99e] hover:text-primary"
         >
           🕒 Log work
         </button>
@@ -2314,13 +2348,13 @@ function TaskRow({
           rows={2}
           maxLength={2000}
           placeholder="Add a note or progress update for your manager…"
-          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-[#f4502e55]"
+          className="w-full border border-[#ece8e1] rounded-lg px-3 py-2 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
         />
       ) : (
         <button
           type="button"
           onClick={() => setNotesOpen(true)}
-          className="self-start text-xs text-gray-400 hover:text-primary"
+          className="self-start text-xs text-[#b0a99e] hover:text-primary"
         >
           + Add note
         </button>

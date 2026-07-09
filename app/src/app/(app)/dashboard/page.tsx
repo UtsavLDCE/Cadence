@@ -3,10 +3,28 @@ import { prisma } from "@/lib/prisma";
 import { todayDate } from "@/lib/utils";
 import { DashboardClient } from "./dashboard-client";
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ scope?: string | string[] }>;
+}) {
   const session = await auth();
   const today = todayDate();
   const isManager = session!.user.role === "MANAGER" || session!.user.role === "ADMIN";
+
+  // Audience scope: "team" = only members of teams this manager manages
+  // (Team.managerId === me); "org" = everyone. Default is role-based — a manager
+  // lands on their own reports, an admin on the whole org. Members never reach
+  // the manager view below, so scope is irrelevant to them.
+  const sp = await searchParams;
+  const rawScope = Array.isArray(sp.scope) ? sp.scope[0] : sp.scope;
+  const scope: "team" | "org" =
+    rawScope === "team" || rawScope === "org"
+      ? rawScope
+      : session!.user.role === "ADMIN"
+        ? "org"
+        : "team";
+  const scopeFilter = scope === "team" ? { team: { managerId: session!.user.id } } : {};
 
   const settings = await prisma.appSettings.upsert({
     where: { id: "singleton" },
@@ -51,7 +69,7 @@ export default async function DashboardPage() {
   // Manager / Admin: aggregate the team
   const [users, todayTasks, overdueGroups, historyTasks, doneTodayTasks, pendingTasks] = await Promise.all([
     prisma.user.findMany({
-      where: { role: "MEMBER" },
+      where: { role: "MEMBER", ...scopeFilter },
       select: { id: true, name: true, email: true, team: { select: { name: true } } },
       orderBy: [{ name: "asc" }],
     }),
@@ -83,7 +101,7 @@ export default async function DashboardPage() {
     // Every still-pending task across the team (any day), excluding deferred
     // audit rows. This is the backlog a manager can rebalance by reassigning.
     prisma.dailyTask.findMany({
-      where: { status: { not: "DONE" }, deferredToDate: null, user: { role: "MEMBER" } },
+      where: { status: { not: "DONE" }, deferredToDate: null, user: { role: "MEMBER", ...scopeFilter } },
       select: {
         id: true, userId: true, title: true, status: true, priority: true,
         estimatedHours: true, date: true,
@@ -159,6 +177,7 @@ export default async function DashboardPage() {
   return (
     <DashboardClient
       isManager={true}
+      scope={scope}
       todayIso={today.toISOString()}
       cutoffTime={settings.cutoffTime}
       myTasks={[]}

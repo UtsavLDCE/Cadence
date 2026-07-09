@@ -8,27 +8,27 @@ export const STATUS_META: Record<
 > = {
   TODO: {
     label: "To Do",
-    badge: "bg-gray-100 text-gray-600",
-    dot: "bg-gray-400",
-    hex: "#8a93a6",
+    badge: "bg-[#f0ece5] text-[#6b665f]",
+    dot: "bg-[#9c9186]",
+    hex: "#9c9186",
   },
   IN_PROGRESS: {
     label: "In Progress",
-    badge: "bg-amber-100 text-amber-700",
-    dot: "bg-amber-500",
-    hex: "#f5a623",
+    badge: "bg-[#eaf1f8] text-[#3a6ea5]",
+    dot: "bg-[#3a6ea5]",
+    hex: "#3a6ea5",
   },
   HOLD: {
     label: "Hold",
-    badge: "bg-violet-100 text-violet-700",
-    dot: "bg-violet-500",
-    hex: "#9b7bd4",
+    badge: "bg-[#eae6fb] text-[#6a5acd]",
+    dot: "bg-[#6a5acd]",
+    hex: "#6a5acd",
   },
   DONE: {
     label: "Done",
-    badge: "bg-emerald-100 text-emerald-700",
-    dot: "bg-emerald-500",
-    hex: "#2bb673",
+    badge: "bg-[#e9f4ec] text-[#3f8a5b]",
+    dot: "bg-[#3f8a5b]",
+    hex: "#3f8a5b",
   },
 };
 
@@ -65,9 +65,9 @@ export const PRIORITY_META: Record<
   Priority,
   { label: string; badge: string; dot: string; rank: number }
 > = {
-  HIGH: { label: "High", badge: "bg-primary-soft text-primary", dot: "bg-primary", rank: 0 },
-  MEDIUM: { label: "Medium", badge: "bg-amber-100 text-amber-700", dot: "bg-amber-500", rank: 1 },
-  LOW: { label: "Low", badge: "bg-gray-100 text-gray-500", dot: "bg-gray-400", rank: 2 },
+  HIGH: { label: "High", badge: "bg-[#fbe4de] text-[#c0392b]", dot: "bg-[#c0392b]", rank: 0 },
+  MEDIUM: { label: "Medium", badge: "bg-[#f0ece5] text-[#6b665f]", dot: "bg-[#9c9186]", rank: 1 },
+  LOW: { label: "Low", badge: "bg-[#e9f4ec] text-[#3f8a5b]", dot: "bg-[#3f8a5b]", rank: 2 },
 };
 
 // Rank for a possibly-missing priority, defaulting to MEDIUM so stale or partial

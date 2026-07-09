@@ -103,13 +103,26 @@ const str = (v: string | string[] | undefined): string | undefined => (typeof v 
 export default async function InsightsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string | string[]; from?: string | string[]; to?: string | string[] }>;
+  searchParams: Promise<{ range?: string | string[]; from?: string | string[]; to?: string | string[]; scope?: string | string[] }>;
 }) {
   const session = await auth();
   const isManager = session!.user.role === "MANAGER" || session!.user.role === "ADMIN";
 
   const today = todayDate();
   const sp = await searchParams;
+
+  // Audience scope for the team view: "team" = only members of teams this
+  // manager manages (Team.managerId === me); "org" = everyone. Role-based default
+  // (manager → own reports, admin → whole org). Members get the personal mirror
+  // below and never see the scope toggle.
+  const rawScope = str(sp.scope);
+  const scope: "team" | "org" =
+    rawScope === "team" || rawScope === "org"
+      ? rawScope
+      : session!.user.role === "ADMIN"
+        ? "org"
+        : "team";
+  const scopeFilter = scope === "team" ? { team: { managerId: session!.user.id } } : {};
   const range = resolveRange({ range: str(sp.range), from: str(sp.from), to: str(sp.to) }, today);
   const windowStartISO = range.start.toISOString();
   const bucketDays = trendBucketDays(range.days);
@@ -168,25 +181,25 @@ export default async function InsightsPage({
   // admin has explicitly excluded (`excludedFromInsights`).
   const [members, windowTasks, wipTasks, events, interruptionGroups] = await Promise.all([
     prisma.user.findMany({
-      where: { excludedFromInsights: false },
+      where: { excludedFromInsights: false, ...scopeFilter },
       select: { id: true, name: true, email: true, team: { select: { name: true } } },
       orderBy: [{ name: "asc" }],
     }),
     prisma.dailyTask.findMany({
-      where: { user: { excludedFromInsights: false }, date: dateWindow },
+      where: { user: { excludedFromInsights: false, ...scopeFilter }, date: dateWindow },
       select: taskSelect,
     }),
     prisma.dailyTask.findMany({
-      where: { user: { excludedFromInsights: false }, status: { in: ["IN_PROGRESS", "HOLD"] }, deferredToDate: null },
+      where: { user: { excludedFromInsights: false, ...scopeFilter }, status: { in: ["IN_PROGRESS", "HOLD"] }, deferredToDate: null },
       select: taskSelect,
     }),
     prisma.taskStatusEvent.findMany({
-      where: { at: dateWindow, task: { user: { excludedFromInsights: false } } },
+      where: { at: dateWindow, task: { user: { excludedFromInsights: false, ...scopeFilter } } },
       select: { taskId: true, userId: true, from: true, to: true, at: true, blockedOn: true, note: true },
     }),
     prisma.interruption.groupBy({
       by: ["userId"],
-      where: { date: dateWindow, user: { excludedFromInsights: false } },
+      where: { date: dateWindow, user: { excludedFromInsights: false, ...scopeFilter } },
       _count: { _all: true },
     }),
   ]);
@@ -232,6 +245,7 @@ export default async function InsightsPage({
       rangeKey={range.key}
       rangeFrom={range.from}
       rangeTo={range.to}
+      scope={scope}
     />
   );
 }

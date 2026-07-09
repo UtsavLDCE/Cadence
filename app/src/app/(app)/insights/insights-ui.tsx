@@ -5,17 +5,17 @@ import { cn } from "@/lib/utils";
 import { fmtHours, type PlanningTone } from "@/lib/task-status";
 import type { BlockedDependency, CategorySlice, TrendPoint } from "@/lib/insights";
 
-// Rotating palette for the category bars — indigo-leaning so it reads distinct
-// from the coral leak accents without competing with them.
-export const CAT_COLORS = ["#6366f1", "#0ea5e9", "#14b8a6", "#f59e0b", "#ec4899", "#8b5cf6", "#22c55e", "#64748b"];
+// Rotating palette for the category bars — matches the design mockup so a
+// category reads distinct without competing with the coral leak accents.
+export const CAT_COLORS = ["#6a5acd", "#3a6ea5", "#2f8f83", "#c08a2d", "#d6608a", "#8b5cc4", "#3f8a5b", "#6b665f", "#4a5ac0"];
 
 // Tone → colour for estimate drift. Underestimation is the leak to watch (work
-// runs longer than planned), so it reads coral; overestimation is amber-neutral.
+// runs longer than planned), so it reads red; overestimation is amber-neutral.
 export const TONE: Record<PlanningTone, { color: string; alert: boolean }> = {
-  ok: { color: "#2bb673", alert: false },
-  under: { color: "#f4502e", alert: true },
-  over: { color: "#f5a623", alert: false },
-  none: { color: "#8a93a6", alert: false },
+  ok: { color: "#3f8a5b", alert: false },
+  under: { color: "#c0392b", alert: true },
+  over: { color: "#c08a2d", alert: false },
+  none: { color: "#b0a99e", alert: false },
 };
 
 // Tiny inline sparkline. Draws the non-null points of a trend series, connecting
@@ -84,13 +84,13 @@ export function Stat({
   trendColor?: string;
 }) {
   return (
-    <div className={cn("bg-white rounded-xl border p-4", alert ? "border-[#f6cabc]" : "border-gray-200")}>
-      <p className="text-xs text-gray-500 truncate">{label}</p>
-      <div className="flex items-end justify-between gap-2">
-        <p className="text-2xl font-bold mt-1 leading-tight" style={{ color: accent }}>{value}</p>
+    <div className={cn("bg-white rounded-[14px] border p-[15px]", alert ? "border-[#f6cabc]" : "border-[#ece8e1]")}>
+      <p className="text-xs text-[#9c968d] truncate">{label}</p>
+      <div className="flex items-end justify-between gap-2 my-[5px]">
+        <p className="mono text-[24px] font-semibold leading-none" style={{ color: accent }}>{value}</p>
         {trend && <Sparkline points={trend} color={trendColor ?? accent} />}
       </div>
-      {hint && <p className="text-[11px] text-gray-400 mt-0.5 truncate" title={hint}>{hint}</p>}
+      {hint && <p className="text-[10px] text-[#b0a99e] mt-1.5 truncate" title={hint}>{hint}</p>}
     </div>
   );
 }
@@ -100,30 +100,25 @@ export function Stat({
 // visible. Rendered as a ranked list with the most recent "why" for context.
 export function BlockedList({ blocked, emptyHint }: { blocked: BlockedDependency[]; emptyHint: string }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5 mb-8">
-      <div className="flex items-baseline justify-between gap-4 flex-wrap mb-4">
-        <h2 className="font-semibold text-gray-800">Waiting on</h2>
-        <p className="text-xs text-gray-400">Cross-team dependencies from HOLD reasons</p>
+    <div className="bg-white rounded-[16px] border border-[#ece8e1] px-[22px] py-[18px] mb-[22px] flex items-center justify-between gap-4 flex-wrap">
+      <div className="flex items-center gap-3.5 flex-wrap min-w-0">
+        <span className="text-sm font-semibold text-[#1c1a17] shrink-0">Waiting on</span>
+        {blocked.length === 0 ? (
+          <span className="text-sm text-[#b0a99e]">{emptyHint}</span>
+        ) : (
+          blocked.map((b) => (
+            <span
+              key={b.blockedOn.toLowerCase()}
+              className="inline-flex items-center gap-1.5 bg-[#eae6fb] text-[#6a5acd] rounded-md px-2.5 py-1 text-[11px] font-semibold"
+              title={b.lastReason ?? undefined}
+            >
+              {b.lastReason ? b.lastReason : b.blockedOn}
+              <span className="mono">×{b.count}</span>
+            </span>
+          ))
+        )}
       </div>
-      {blocked.length === 0 ? (
-        <p className="text-sm text-gray-400 py-2">{emptyHint}</p>
-      ) : (
-        <ul className="space-y-2">
-          {blocked.map((b) => (
-            <li key={b.blockedOn.toLowerCase()} className="flex items-start gap-3 text-sm">
-              <span className="mt-0.5 shrink-0 inline-flex items-center gap-1.5 bg-violet-100 text-violet-700 rounded-full px-2.5 py-0.5 text-xs font-medium">
-                {b.blockedOn}
-                <span className="tabular-nums text-violet-500">×{b.count}</span>
-              </span>
-              {b.lastReason && (
-                <span className="text-gray-500 flex-1 min-w-0 truncate" title={b.lastReason}>
-                  {b.lastReason}
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+      <span className="text-xs text-[#b0a99e] shrink-0">cross-team dependencies from HOLD reasons</span>
     </div>
   );
 }
@@ -150,17 +145,17 @@ export function CategoryByPerson({
 }) {
   const withData = members.filter((m) => m.categories.length > 0);
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5 mb-8">
+    <div className="bg-white rounded-[16px] border border-[#ece8e1] p-[22px] mb-[22px]">
       <div className="flex items-baseline justify-between gap-4 flex-wrap mb-4">
-        <h2 className="font-semibold text-gray-800">Where time goes · by person</h2>
-        <p className="text-xs text-gray-400">Same categories, split per member · click a person for the full breakdown</p>
+        <h2 className="text-sm font-semibold text-[#1c1a17]">Where time goes · by person</h2>
+        <p className="text-xs text-[#b0a99e]">Same categories, split per member · click a person for the full breakdown</p>
       </div>
       {withData.length === 0 ? (
-        <p className="text-sm text-gray-400 py-2">
+        <p className="text-sm text-[#b0a99e] py-2">
           No categorized effort yet. Tag tasks (meetings, client calls, cross-team, R&D…) to see the split per person.
         </p>
       ) : (
-        <div className="divide-y divide-gray-100">
+        <div className="divide-y divide-[#f2eee7]">
           {withData.map((m) => (
             <PersonCategoryRow key={m.id} member={m} colorOf={colorOf} />
           ))}
@@ -190,10 +185,10 @@ function PersonCategoryRow({
         className="w-full text-left group focus:outline-none"
       >
         <div className="flex items-baseline justify-between gap-2 mb-1.5">
-          <span className="text-sm font-medium text-gray-800 truncate flex items-center gap-1.5 min-w-0">
+          <span className="text-sm font-medium text-[#2c2925] truncate flex items-center gap-1.5 min-w-0">
             <svg
               viewBox="0 0 20 20"
-              className={cn("w-3.5 h-3.5 shrink-0 text-gray-400 transition-transform", open && "rotate-90")}
+              className={cn("w-3.5 h-3.5 shrink-0 text-[#b0a99e] transition-transform", open && "rotate-90")}
               fill="currentColor"
               aria-hidden
             >
@@ -201,7 +196,7 @@ function PersonCategoryRow({
             </svg>
             <span className="truncate">{member.name}</span>
           </span>
-          <span className="text-xs text-gray-400 shrink-0 tabular-nums">{fmtHours(total)}</span>
+          <span className="mono text-xs text-[#b0a99e] shrink-0">{fmtHours(total)}</span>
         </div>
         <div className="flex h-2.5 rounded-full overflow-hidden">
           {member.categories.map((c) => (
@@ -219,9 +214,9 @@ function PersonCategoryRow({
           {member.categories.map((c) => (
             <div key={c.id ?? "none"} className="flex items-center gap-2 text-sm">
               <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: colorOf(c.id) }} />
-              <span className={cn("flex-1 truncate", c.id ? "text-gray-700" : "text-gray-400 italic")}>{c.name}</span>
-              <span className="text-gray-500 tabular-nums shrink-0">{fmtHours(c.hours)}</span>
-              <span className="text-xs text-gray-400 tabular-nums shrink-0 w-9 text-right">{c.pct}%</span>
+              <span className={cn("flex-1 truncate", c.id ? "text-[#1c1a17]" : "text-[#b0a99e] italic")}>{c.name}</span>
+              <span className="mono text-[#1c1a17] shrink-0">{fmtHours(c.hours)}</span>
+              <span className="mono text-xs text-[#b0a99e] shrink-0 w-10 text-right">{c.pct}%</span>
             </div>
           ))}
         </div>
@@ -230,8 +225,8 @@ function PersonCategoryRow({
           {member.categories.map((c) => (
             <span key={c.id ?? "none"} className="inline-flex items-center gap-1.5 text-xs">
               <span className="w-2 h-2 rounded-sm shrink-0" style={{ backgroundColor: colorOf(c.id) }} />
-              <span className={cn(c.id ? "text-gray-600" : "text-gray-400 italic")}>{c.name}</span>
-              <span className="text-gray-400 tabular-nums">{c.pct}%</span>
+              <span className={cn(c.id ? "text-[#6b665f]" : "text-[#b0a99e] italic")}>{c.name}</span>
+              <span className="mono text-[#b0a99e]">{c.pct}%</span>
             </span>
           ))}
         </div>
@@ -243,19 +238,19 @@ function PersonCategoryRow({
 export function CategoryBreakdown({ categories, title = "Where time goes" }: { categories: CategorySlice[]; title?: string }) {
   const totalHours = categories.reduce((s, c) => s + c.hours, 0);
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5 mb-8">
+    <div className="bg-white rounded-[16px] border border-[#ece8e1] p-[22px] mb-[22px]">
       <div className="flex items-baseline justify-between gap-4 flex-wrap mb-4">
-        <h2 className="font-semibold text-gray-800">{title}</h2>
-        <p className="text-xs text-gray-400">Effort by category · {fmtHours(totalHours)} logged/planned</p>
+        <h2 className="text-sm font-semibold text-[#1c1a17]">{title}</h2>
+        <p className="text-xs text-[#b0a99e]">effort by category · <span className="mono">{fmtHours(totalHours)}</span> logged/planned</p>
       </div>
 
       {categories.length === 0 ? (
-        <p className="text-sm text-gray-400 py-2">
+        <p className="text-sm text-[#b0a99e] py-2">
           No categorized effort yet. Tag tasks (meetings, client calls, cross-team, R&D…) to see the split.
         </p>
       ) : (
         <>
-          <div className="flex h-3 rounded-full overflow-hidden mb-4">
+          <div className="flex h-3.5 rounded-[7px] overflow-hidden mb-[18px]">
             {categories.map((c, i) => (
               <div
                 key={c.id ?? "none"}
@@ -264,13 +259,13 @@ export function CategoryBreakdown({ categories, title = "Where time goes" }: { c
               />
             ))}
           </div>
-          <div className="grid sm:grid-cols-2 gap-x-8 gap-y-2">
+          <div className="grid sm:grid-cols-2 gap-x-10 gap-y-2.5">
             {categories.map((c, i) => (
-              <div key={c.id ?? "none"} className="flex items-center gap-2 text-sm">
-                <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: CAT_COLORS[i % CAT_COLORS.length] }} />
-                <span className={cn("flex-1 truncate", c.id ? "text-gray-700" : "text-gray-400 italic")}>{c.name}</span>
-                <span className="text-gray-500 tabular-nums shrink-0">{fmtHours(c.hours)}</span>
-                <span className="text-xs text-gray-400 tabular-nums shrink-0 w-9 text-right">{c.pct}%</span>
+              <div key={c.id ?? "none"} className="flex items-center gap-[9px] text-[13px]">
+                <span className="w-[9px] h-[9px] rounded-sm shrink-0" style={{ backgroundColor: CAT_COLORS[i % CAT_COLORS.length] }} />
+                <span className={cn("truncate", c.id ? "text-[#1c1a17]" : "text-[#9c968d] italic")}>{c.name}</span>
+                <span className="mono ml-auto text-[#1c1a17] shrink-0">{fmtHours(c.hours)}</span>
+                <span className="mono text-[#b0a99e] shrink-0 w-10 text-right">{c.pct}%</span>
               </div>
             ))}
           </div>

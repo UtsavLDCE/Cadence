@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { todayDate, formatDate } from "@/lib/utils";
+import { todayDate } from "@/lib/utils";
 import { TAGS_INCLUDE } from "@/lib/task-tags";
 import { WORKLOG_INCLUDE } from "@/lib/worklog";
 import { TasksClient } from "./tasks-client";
@@ -50,10 +50,6 @@ export default async function MyDayPage() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">My Day</h1>
-        <p className="text-gray-500">{formatDate(today)}</p>
-      </div>
       <TasksClient
         initialTasks={JSON.parse(JSON.stringify(tasks))}
         initialQueue={JSON.parse(JSON.stringify(queue))}
