@@ -65,7 +65,6 @@ model User {
   workLogs      WorkLog[]
   queueItems    QueueItem[]
   dayPlans      DayPlan[]
-  teamsPrompts  TeamsPrompt[]
 }
 
 model Team {
@@ -306,34 +305,6 @@ model AppSettings {
   cutoffTime  String   @default("12:00")
   timezone    String   @default("UTC")
   updatedAt   DateTime @updatedAt
-
-  // Microsoft Teams per-person DM integration. Configured from the Admin →
-  // Integrations tab so no redeploy/env edit is needed. teamsEnabled gates the
-  // weekday dispatch (cron + "Send now"); teamsFlowUrl is the Power Automate HTTP
-  // trigger the portal POSTs cards to; teamsSharedSecret authenticates both
-  // directions of the bridge. Empty values fall back to the matching env vars.
-  teamsEnabled      Boolean @default(false)
-  teamsFlowUrl      String  @default("") @db.Text
-  teamsSharedSecret String  @default("") @db.Text
-}
-
-// Tracks each Microsoft Teams daily prompt the portal pushed to a member, per
-// day and phase (MORNING = plan goal + estimates, EOD = end-of-day status). One
-// row per (user, day, phase) gives idempotency (the weekday cron can't double-
-// send) and an auditable record of who was asked and who answered (respondedAt
-// is stamped when the member's reply is ingested back into the portal).
-model TeamsPrompt {
-  id          String      @id @default(cuid())
-  userId      String
-  date        DateTime    @db.Date
-  phase       PromptPhase
-  sentAt      DateTime    @default(now())
-  respondedAt DateTime?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, date, phase])
-  @@index([date, phase])
 }
 
 enum UserRole {
@@ -377,10 +348,4 @@ enum DeferralCause {
   BLOCKED
   DEPRIORITIZED
   OTHER
-}
-
-// The two daily touchpoints the Teams integration drives.
-enum PromptPhase {
-  MORNING
-  EOD
 }

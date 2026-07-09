@@ -41,8 +41,6 @@ services:
       AUTH_URL: ${AUTH_URL:-http://localhost:3000}
       AUTH_SECRET: ${AUTH_SECRET}
       AUTH_TRUST_HOST: "true"
-      TEAMS_FLOW_URL: ${TEAMS_FLOW_URL:-}
-      TEAMS_SHARED_SECRET: ${TEAMS_SHARED_SECRET:-}
     ports:
       - "3000:3000"
 

@@ -13,8 +13,26 @@ Built with **Next.js 16 (App Router)**, **React 19**, **Prisma 7 + PostgreSQL**,
 - **Teams & roles** — Admin / Manager / Member, team assignment, managed teams
 - **Insights** — per-team productivity report (with opt-out per user)
 - **Auth** — Microsoft Entra ID (Azure AD) SSO *and* email/password
-- **Microsoft Teams integration** — optional daily prompts via Power Automate
-  (see [`app/docs/teams-integration.md`](app/docs/teams-integration.md))
+
+## Install Docker
+
+Docker Engine + Compose plugin. Skip if `docker compose version` already works.
+
+**Linux (Debian/Ubuntu and most distros):**
+
+```bash
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker "$USER"   # run docker without sudo
+newgrp docker                     # apply group now (or log out/in)
+```
+
+**macOS / Windows:** install [Docker Desktop](https://www.docker.com/products/docker-desktop/) (bundles Compose).
+
+Verify:
+
+```bash
+docker compose version
+```
 
 ## Quick start (Docker)
 
@@ -69,8 +87,6 @@ Set in `app/.env` for manual runs, or the repo-root `.env` for Docker Compose.
 | `AUTH_SECRET` | **yes** | Session encryption key. Generate: `openssl rand -base64 32` |
 | `AUTH_URL` | yes | Public app URL, e.g. `http://localhost:3000` or `http://<vm-ip>:3000` |
 | `AUTH_TRUST_HOST` | yes | Set `"true"` behind a proxy / non-localhost host |
-| `TEAMS_FLOW_URL` | no | Power Automate HTTP-trigger URL for Teams daily prompts |
-| `TEAMS_SHARED_SECRET` | no | Bearer token shared with the Teams flow (`openssl rand -hex 32`) |
 
 ### Microsoft Entra ID (Azure AD) SSO — optional
 
@@ -103,7 +119,6 @@ and configure the standup cutoff time.
 └── app/                 # the Next.js application
     ├── src/app/         # App Router — (app) pages + /api routes
     ├── prisma/          # schema + migrations
-    ├── docs/            # teams-integration.md
     └── Dockerfile       # multi-stage: builder / migrator / runner
 ```
 

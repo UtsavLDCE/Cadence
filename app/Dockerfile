@@ -13,10 +13,11 @@ COPY . .
 RUN npx prisma generate
 RUN npm run build
 
-# Migration stage: keeps full node_modules + prisma CLI to run `migrate deploy`
+# Migration stage: keeps full node_modules + prisma CLI to run `migrate deploy`,
+# then seeds the default admin user (idempotent).
 FROM builder AS migrator
 WORKDIR /app
-CMD ["npx", "prisma", "migrate", "deploy"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node prisma/seed.mjs"]
 
 FROM base AS runner
 WORKDIR /app

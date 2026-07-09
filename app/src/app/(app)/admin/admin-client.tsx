@@ -24,32 +24,15 @@ type Team = {
 
 type Settings = { cutoffTime: string; timezone: string };
 
-type PhaseState = { sentAt: string; respondedAt: string | null } | null;
-type TeamsRow = { id: string; name: string | null; email: string | null; MORNING: PhaseState; EOD: PhaseState };
-type TeamsConfig = { enabled: boolean; flowUrl: boolean; secret: boolean };
-type TeamsSettings = { enabled: boolean; flowUrl: string; secretSet: boolean };
-
 type Props = {
   users: User[];
   teams: Team[];
   settings: Settings;
-  teamsToday: TeamsRow[];
-  teamsConfig: TeamsConfig;
-  teamsSettings: TeamsSettings;
-  teamsDateLabel: string;
 };
 
-export function AdminClient({ users, teams, settings, teamsToday, teamsConfig, teamsSettings, teamsDateLabel }: Props) {
+export function AdminClient({ users, teams, settings }: Props) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<"users" | "roles" | "teams" | "settings" | "integrations">("users");
-  const [dispatching, setDispatching] = useState<"morning" | "eod" | null>(null);
-
-  // Teams integration config form (mirrors AppSettings; persisted via /api/settings).
-  const [tEnabled, setTEnabled] = useState(teamsSettings.enabled);
-  const [tFlowUrl, setTFlowUrl] = useState(teamsSettings.flowUrl);
-  const [tSecret, setTSecret] = useState(""); // blank = keep stored secret
-  const [tSavingCfg, setTSavingCfg] = useState(false);
-  const [tTesting, setTTesting] = useState(false);
+  const [activeTab, setActiveTab] = useState<"users" | "roles" | "teams" | "settings">("users");
   const [newTeamName, setNewTeamName] = useState("");
   const [newTeamManagerId, setNewTeamManagerId] = useState("");
   const [cutoffTime, setCutoffTime] = useState(settings.cutoffTime);
@@ -152,67 +135,6 @@ export function AdminClient({ users, teams, settings, teamsToday, teamsConfig, t
     setMessage({ type: res.ok ? "success" : "error", text: res.ok ? "Settings saved." : "Failed to save." });
   }
 
-  async function saveTeamsConfig(e: React.FormEvent) {
-    e.preventDefault();
-    setTSavingCfg(true);
-    setMessage(null);
-    const payload: Record<string, unknown> = {
-      teamsEnabled: tEnabled,
-      teamsFlowUrl: tFlowUrl.trim(),
-    };
-    if (tSecret.trim()) payload.teamsSharedSecret = tSecret.trim();
-    const res = await fetch("/api/settings", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    setTSavingCfg(false);
-    if (res.ok) {
-      setTSecret("");
-      setMessage({ type: "success", text: "Teams settings saved." });
-      router.refresh();
-    } else {
-      const d = await res.json().catch(() => ({}));
-      setMessage({ type: "error", text: d.error || "Failed to save Teams settings." });
-    }
-  }
-
-  function generateSecret() {
-    const bytes = new Uint8Array(32);
-    crypto.getRandomValues(bytes);
-    setTSecret(Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join(""));
-  }
-
-  async function sendTestDm() {
-    setTTesting(true);
-    setMessage(null);
-    const res = await fetch("/api/integrations/teams/test", { method: "POST" });
-    setTTesting(false);
-    const d = await res.json().catch(() => ({}));
-    if (res.ok) {
-      setMessage({ type: "success", text: `Test card sent to ${d.email}. Check your Teams chat.` });
-    } else {
-      setMessage({ type: "error", text: d.error || "Test failed." });
-    }
-  }
-
-  async function sendTeamsPrompt(phase: "morning" | "eod") {
-    setDispatching(phase);
-    setMessage(null);
-    const res = await fetch(`/api/integrations/teams/dispatch?phase=${phase}`, { method: "POST" });
-    setDispatching(null);
-    const d = await res.json().catch(() => ({}));
-    if (res.ok) {
-      setMessage({
-        type: "success",
-        text: `${phase === "morning" ? "Morning" : "End-of-day"} prompt: ${d.sent} sent, ${d.skipped} skipped, ${d.failed} failed.`,
-      });
-      router.refresh();
-    } else {
-      setMessage({ type: "error", text: d.error || "Failed to send prompts." });
-    }
-  }
-
   return (
     <div>
       {message && (
@@ -230,7 +152,6 @@ export function AdminClient({ users, teams, settings, teamsToday, teamsConfig, t
           { key: "roles", label: "Roles & Permissions" },
           { key: "teams", label: `Teams (${teams.length})` },
           { key: "settings", label: "Settings" },
-          { key: "integrations", label: "Integrations" },
         ] as const).map((tab) => (
           <button
             key={tab.key}
@@ -478,185 +399,6 @@ export function AdminClient({ users, teams, settings, teamsToday, teamsConfig, t
           </div>
         </div>
       )}
-
-      {activeTab === "integrations" && (
-        <div className="space-y-4">
-          {/* Configuration form */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="font-semibold text-gray-900 mb-1">Microsoft Teams daily prompts</h2>
-                <p className="text-xs text-gray-500 mb-4 max-w-2xl">
-                  On weekdays the portal DMs each member a morning planning card (goal + estimates)
-                  and an end-of-day status card in Teams; their replies write straight back here.
-                  Members are matched to Teams by email. Paste your Power Automate flow URL and a
-                  shared secret below — no redeploy needed.
-                </p>
-              </div>
-              <span
-                className={cn(
-                  "shrink-0 inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full",
-                  teamsConfig.enabled && teamsConfig.flowUrl && teamsConfig.secret
-                    ? "bg-green-50 text-green-700"
-                    : "bg-gray-100 text-gray-500",
-                )}
-              >
-                <span
-                  className={cn(
-                    "w-1.5 h-1.5 rounded-full",
-                    teamsConfig.enabled && teamsConfig.flowUrl && teamsConfig.secret
-                      ? "bg-green-500"
-                      : "bg-gray-400",
-                  )}
-                />
-                {teamsConfig.enabled
-                  ? teamsConfig.flowUrl && teamsConfig.secret
-                    ? "Live"
-                    : "Enabled · incomplete"
-                  : "Disabled"}
-              </span>
-            </div>
-
-            <form onSubmit={saveTeamsConfig} className="space-y-4">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={tEnabled}
-                  onChange={(e) => setTEnabled(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-300"
-                />
-                <span className="text-sm font-medium text-gray-700">
-                  Enable weekday Teams prompts
-                </span>
-              </label>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Power Automate flow URL
-                </label>
-                <p className="text-xs text-gray-500 mb-2">
-                  The flow&apos;s &quot;When a HTTP request is received&quot; trigger URL. The portal POSTs cards here.
-                </p>
-                <input
-                  type="url"
-                  value={tFlowUrl}
-                  onChange={(e) => setTFlowUrl(e.target.value)}
-                  placeholder="https://prod-00.westus.logic.azure.com:443/workflows/…/triggers/manual/paths/invoke?…"
-                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Shared secret{" "}
-                  {teamsSettings.secretSet && (
-                    <span className="text-xs font-normal text-green-700">· a secret is saved</span>
-                  )}
-                </label>
-                <p className="text-xs text-gray-500 mb-2">
-                  Authenticates the portal↔flow↔cron calls. Use the same value in the flow and the
-                  crontab. Leave blank to keep the saved one.
-                </p>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={tSecret}
-                    onChange={(e) => setTSecret(e.target.value)}
-                    placeholder={teamsSettings.secretSet ? "•••••••• (unchanged)" : "Paste or generate a long random secret"}
-                    className="flex-1 font-mono text-xs border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                  />
-                  <button
-                    type="button"
-                    onClick={generateSecret}
-                    className="shrink-0 text-xs font-medium text-indigo-700 border border-indigo-200 hover:bg-indigo-50 px-3 py-2 rounded-lg transition-colors"
-                  >
-                    Generate
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-3 pt-1">
-                <button
-                  type="submit"
-                  disabled={tSavingCfg}
-                  className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-                >
-                  {tSavingCfg ? "Saving…" : "Save settings"}
-                </button>
-                <button
-                  type="button"
-                  onClick={sendTestDm}
-                  disabled={!teamsConfig.flowUrl || !teamsConfig.secret || tTesting}
-                  title={
-                    !teamsConfig.flowUrl || !teamsConfig.secret
-                      ? "Save a flow URL and secret first"
-                      : "Send a test card to your own Teams DM"
-                  }
-                  className="bg-white border border-indigo-600 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-                >
-                  {tTesting ? "Sending…" : "Send test DM to myself"}
-                </button>
-              </div>
-            </form>
-
-            <div className="mt-5 pt-4 border-t border-gray-100">
-              <p className="text-xs text-gray-500 mb-2">
-                Send today&apos;s prompts to all members now (also runs automatically on the weekday cron):
-              </p>
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => sendTeamsPrompt("morning")}
-                  disabled={!teamsConfig.enabled || !teamsConfig.flowUrl || dispatching !== null}
-                  className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-                >
-                  {dispatching === "morning" ? "Sending…" : "Send morning prompt now"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => sendTeamsPrompt("eod")}
-                  disabled={!teamsConfig.enabled || !teamsConfig.flowUrl || dispatching !== null}
-                  className="bg-white border border-indigo-600 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-                >
-                  {dispatching === "eod" ? "Sending…" : "Send end-of-day prompt now"}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Today's per-member status */}
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            <div className="px-4 py-3 border-b border-gray-200">
-              <h3 className="font-semibold text-gray-900 text-sm">Today&apos;s prompts</h3>
-              <p className="text-xs text-gray-500">{teamsDateLabel}</p>
-            </div>
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Member</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Morning plan</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">End-of-day status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {teamsToday.map((m) => (
-                  <tr key={m.id}>
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-gray-900">{m.name || "—"}</p>
-                      <p className="text-xs text-gray-500">{m.email}</p>
-                    </td>
-                    <td className="px-4 py-3"><PromptCell state={m.MORNING} /></td>
-                    <td className="px-4 py-3"><PromptCell state={m.EOD} /></td>
-                  </tr>
-                ))}
-                {teamsToday.length === 0 && (
-                  <tr><td colSpan={3} className="px-4 py-6 text-center text-gray-400">No members to prompt.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -754,25 +496,6 @@ function PermCell({ access }: { access: Access }) {
     <span className={cn("inline-flex items-center gap-1.5 text-xs font-medium", m.text)}>
       <span className={cn("w-2 h-2 rounded-full", m.dot)} />
       {m.label}
-    </span>
-  );
-}
-
-function PromptCell({ state }: { state: PhaseState }) {
-  if (!state) return <span className="text-xs text-gray-400">Not sent</span>;
-  const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  if (state.respondedAt) {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green-700">
-        <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-        Replied {time(state.respondedAt)}
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-700">
-      <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-      Sent {time(state.sentAt)} · awaiting reply
     </span>
   );
 }

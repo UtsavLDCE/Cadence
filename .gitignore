@@ -1,5 +1,10 @@
 # Local tooling / not for the repo
 .gsd/
+.gsd-backups/
 .bg-shell/
 .mcp.json
 .claude/
+
+# Secrets / local env
+.env
+.env.*

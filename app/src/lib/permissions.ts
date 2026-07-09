@@ -32,7 +32,7 @@ export type PermissionArea = {
 };
 
 export const ROLE_META: Record<Role, { label: string; blurb: string }> = {
-  ADMIN: { label: "Admin", blurb: "Full control — everything a manager can do, plus users, teams, settings, and integrations." },
+  ADMIN: { label: "Admin", blurb: "Full control — everything a manager can do, plus users, teams, and settings." },
   MANAGER: { label: "Manager", blurb: "Sees and manages the whole team's work, but not app configuration or user accounts." },
   MEMBER: { label: "Member", blurb: "Plans and tracks their own day. No team-wide visibility or configuration." },
 };
@@ -200,12 +200,6 @@ export const PERMISSION_MATRIX: PermissionArea[] = [
         detail: "Hide a user (e.g. a manager) from the team Insights report.",
         admin: "full", manager: "none", member: "none",
         enforcedAt: "api/users/route.ts",
-      },
-      {
-        label: "Microsoft Teams integration",
-        detail: "Configure the daily-prompt flow, secret, and manually dispatch prompts.",
-        admin: "full", manager: "none", member: "none",
-        enforcedAt: "api/settings/route.ts, api/integrations/teams/*",
       },
     ],
   },
