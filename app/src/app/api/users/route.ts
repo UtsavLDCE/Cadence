@@ -21,7 +21,9 @@ export async function GET() {
       image: true,
       role: true,
       teamId: true,
+      managerId: true,
       team: { select: { id: true, name: true } },
+      manager: { select: { id: true, name: true, email: true } },
       createdAt: true,
     },
     orderBy: { name: "asc" },
@@ -43,6 +45,7 @@ export async function POST(req: NextRequest) {
   const password = typeof body.password === "string" ? body.password : "";
   const role: Role = ROLES.includes(body.role) ? body.role : "MEMBER";
   const teamId = typeof body.teamId === "string" && body.teamId ? body.teamId : null;
+  const managerId = typeof body.managerId === "string" && body.managerId ? body.managerId : null;
 
   if (!name || !email || !password) {
     return NextResponse.json({ error: "Name, email, and password are required" }, { status: 400 });
@@ -59,23 +62,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Email already registered" }, { status: 409 });
   }
 
-  // A team carries its own manager, so assigning the team sets the user's manager.
   if (teamId) {
     const team = await prisma.team.findUnique({ where: { id: teamId } });
     if (!team) return NextResponse.json({ error: "Team not found" }, { status: 400 });
+  }
+  if (managerId) {
+    const manager = await prisma.user.findUnique({ where: { id: managerId } });
+    if (!manager) return NextResponse.json({ error: "Manager not found" }, { status: 400 });
   }
 
   const hashed = await bcrypt.hash(password, 12);
 
   const user = await prisma.user.create({
-    data: { name, email, password: hashed, role, teamId },
+    data: { name, email, password: hashed, role, teamId, managerId },
     select: {
       id: true,
       name: true,
       email: true,
       role: true,
       teamId: true,
+      managerId: true,
       team: { select: { id: true, name: true } },
+      manager: { select: { id: true, name: true, email: true } },
     },
   });
 
@@ -89,22 +97,29 @@ export async function PATCH(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { userId, role, teamId, excludedFromInsights } = body as {
+  const { userId, role, teamId, managerId, excludedFromInsights } = body as {
     userId: string;
     role?: "ADMIN" | "MANAGER" | "MEMBER";
     teamId?: string | null;
+    managerId?: string | null;
     excludedFromInsights?: boolean;
   };
+
+  // A user can't report to themselves.
+  if (managerId && managerId === userId) {
+    return NextResponse.json({ error: "A user cannot be their own manager" }, { status: 400 });
+  }
 
   const updated = await prisma.user.update({
     where: { id: userId },
     data: {
       ...(role && { role }),
       ...(teamId !== undefined && { teamId }),
+      ...(managerId !== undefined && { managerId }),
       // Admin-only: hide/show a user in the Insights team view.
       ...(typeof excludedFromInsights === "boolean" && { excludedFromInsights }),
     },
-    select: { id: true, name: true, email: true, role: true, teamId: true, excludedFromInsights: true },
+    select: { id: true, name: true, email: true, role: true, teamId: true, managerId: true, excludedFromInsights: true },
   });
 
   return NextResponse.json(updated);

@@ -11,8 +11,10 @@ type User = {
   email: string | null;
   role: "ADMIN" | "MANAGER" | "MEMBER";
   teamId: string | null;
+  managerId: string | null;
   excludedFromInsights: boolean;
   team: { id: string; name: string } | null;
+  manager: { id: string; name: string | null; email: string | null } | null;
 };
 
 type Team = {
@@ -40,12 +42,12 @@ export function AdminClient({ users, teams, settings }: Props) {
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // New-user form
-  const [nu, setNu] = useState({ name: "", email: "", password: "", role: "MEMBER", teamId: "" });
+  const [nu, setNu] = useState({ name: "", email: "", password: "", role: "MEMBER", teamId: "", managerId: "" });
   const [creatingUser, setCreatingUser] = useState(false);
 
   const managers = users.filter((u) => u.role === "MANAGER" || u.role === "ADMIN");
 
-  async function updateUser(userId: string, field: "role" | "teamId", value: string) {
+  async function updateUser(userId: string, field: "role" | "teamId" | "managerId", value: string) {
     const res = await fetch("/api/users", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -80,11 +82,12 @@ export function AdminClient({ users, teams, settings }: Props) {
         password: nu.password,
         role: nu.role,
         teamId: nu.teamId || undefined,
+        managerId: nu.managerId || undefined,
       }),
     });
     setCreatingUser(false);
     if (res.ok) {
-      setNu({ name: "", email: "", password: "", role: "MEMBER", teamId: "" });
+      setNu({ name: "", email: "", password: "", role: "MEMBER", teamId: "", managerId: "" });
       setMessage({ type: "success", text: "User created." });
       router.refresh();
     } else {
@@ -171,7 +174,7 @@ export function AdminClient({ users, teams, settings }: Props) {
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h2 className="font-semibold text-gray-900 mb-1">Create User</h2>
             <p className="text-xs text-gray-500 mb-4">
-              Add a team member and assign them to a team — the team&apos;s manager becomes their manager.
+              Add a team member, assign a team, and set who they report to.
             </p>
             <form onSubmit={createUser} className="space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -210,11 +213,21 @@ export function AdminClient({ users, teams, settings }: Props) {
                   onChange={(e) => setNu((s) => ({ ...s, teamId: e.target.value }))}
                   className="sm:col-span-2 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300"
                 >
-                  <option value="">No team / no manager</option>
+                  <option value="">No team</option>
                   {teams.map((t) => (
                     <option key={t.id} value={t.id}>
                       {t.name} — manager: {t.manager?.name || t.manager?.email || "none"}
                     </option>
+                  ))}
+                </select>
+                <select
+                  value={nu.managerId}
+                  onChange={(e) => setNu((s) => ({ ...s, managerId: e.target.value }))}
+                  className="sm:col-span-2 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                >
+                  <option value="">No manager</option>
+                  {managers.map((m) => (
+                    <option key={m.id} value={m.id}>Reports to: {m.name || m.email}</option>
                   ))}
                 </select>
               </div>
@@ -235,6 +248,7 @@ export function AdminClient({ users, teams, settings }: Props) {
                 <th className="text-left px-4 py-3 font-medium text-gray-600">User</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Role</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Team</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600" title="Who this user reports to.">Manager</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600" title="Hide this user from the Insights team view — admin only.">
                   Exclude from Insights
                 </th>
@@ -267,6 +281,18 @@ export function AdminClient({ users, teams, settings }: Props) {
                       <option value="">No team</option>
                       {teams.map((t) => (
                         <option key={t.id} value={t.id}>{t.name}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-4 py-3">
+                    <select
+                      value={user.managerId || ""}
+                      onChange={(e) => updateUser(user.id, "managerId", e.target.value)}
+                      className="text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                    >
+                      <option value="">No manager</option>
+                      {managers.filter((m) => m.id !== user.id).map((m) => (
+                        <option key={m.id} value={m.id}>{m.name || m.email}</option>
                       ))}
                     </select>
                   </td>
