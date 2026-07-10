@@ -38,7 +38,11 @@ services:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://tasktracker:tasktracker@postgres:5432/tasktracker?schema=public
-      AUTH_URL: ${AUTH_URL:-http://localhost:3000}
+      # Unset by default so NextAuth derives the base URL from the request host
+      # (AUTH_TRUST_HOST=true). Set AUTH_URL explicitly only behind a proxy that
+      # rewrites the host. Hardcoding localhost here sent logout to localhost on
+      # remote servers.
+      AUTH_URL: ${AUTH_URL:-}
       AUTH_SECRET: ${AUTH_SECRET}
       AUTH_TRUST_HOST: "true"
     ports:
