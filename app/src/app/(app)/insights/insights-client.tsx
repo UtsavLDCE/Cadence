@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { fmtHours, DEFERRAL_CAUSE_META } from "@/lib/task-status";
-import { WIP_THRESHOLD, type MemberInsights, type TeamInsights, type CategorySlice, type Trends } from "@/lib/insights";
+import { fmtHours, DEFERRAL_CAUSE_META, WORKDAY_HOURS } from "@/lib/task-status";
+import { WIP_THRESHOLD, MIN_PLAN_LOAD_PCT, type MemberInsights, type TeamInsights, type CategorySlice, type Trends } from "@/lib/insights";
 import type { RangeKey } from "@/lib/insights-range";
 import { TONE, Stat, BlockedList, CategoryBreakdown, CategoryByPerson, buildCategoryColors } from "./insights-ui";
 import { TimelineSelector } from "./timeline-selector";
@@ -281,6 +281,7 @@ function MemberRow({ m }: { m: MemberInsights }) {
             <p className="mono text-[10px] text-[#b0a99e]">
               {fmtHours(drift.actualHours)} vs {fmtHours(drift.estimatedHours)} est · {drift.sampleSize}
             </p>
+            <p className="text-[10px] font-medium" style={{ color: TONE[drift.tone].color }}>{drift.label}</p>
           </div>
         )}
       </td>
@@ -297,6 +298,14 @@ function MemberRow({ m }: { m: MemberInsights }) {
             <p className="mono text-[10px] text-[#b0a99e]">
               {fmtHours(m.util.loggedHours)} / {fmtHours(m.util.plannedHours)} planned
             </p>
+            {m.util.underPlanned && m.util.perDayHours != null && (
+              <p
+                className="text-[10px] text-[#c0392b] font-semibold"
+                title={`Plans ${fmtHours(m.util.perDayHours)}/day of ${WORKDAY_HOURS}h — under the ${MIN_PLAN_LOAD_PCT}% floor`}
+              >
+                ⚠ only {fmtHours(m.util.perDayHours)}/day of {WORKDAY_HOURS}h
+              </p>
+            )}
           </div>
         )}
       </td>

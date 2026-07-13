@@ -201,16 +201,31 @@ export type Utilization = {
   loggedHours: number;
   plannedHours: number;
   pct: number | null; // logged / planned
+  perDayHours: number | null; // avg planned hours per working day
+  capacityHours: number; // workingDays * WORKDAY_HOURS
+  planLoadPct: number | null; // planned / capacity — how full the plan is vs the workday
+  underPlanned: boolean; // planLoadPct < MIN_PLAN_LOAD_PCT (planned too few hours/day)
 };
 
-export function utilization(tasks: InsightTaskRow[]): Utilization {
+// Under-planning floor: a plan should fill at least this share of the workday's
+// capacity. 75% of an 8h day = 6h/day floor; a plan under that (e.g. 4h/day)
+// highlights. Raise toward 80 for a stricter ~6.4h floor.
+export const MIN_PLAN_LOAD_PCT = 75;
+
+export function utilization(tasks: InsightTaskRow[], workingDays = 0): Utilization {
   const live = tasks.filter((t) => !t.deferredToDate);
   const logged = live.reduce((s, t) => s + (t.actualHours ?? 0), 0);
   const planned = live.reduce((s, t) => s + (t.estimatedHours ?? 0), 0);
+  const capacityHours = workingDays * WORKDAY_HOURS;
+  const planLoadPct = capacityHours > 0 ? Math.round((planned / capacityHours) * 100) : null;
   return {
     loggedHours: Math.round(logged * 10) / 10,
     plannedHours: Math.round(planned * 10) / 10,
     pct: planned > 0 ? Math.round((logged / planned) * 100) : null,
+    perDayHours: workingDays > 0 ? Math.round((planned / workingDays) * 10) / 10 : null,
+    capacityHours: Math.round(capacityHours * 10) / 10,
+    planLoadPct,
+    underPlanned: planLoadPct != null && planLoadPct < MIN_PLAN_LOAD_PCT,
   };
 }
 
@@ -496,7 +511,7 @@ export function buildMemberInsights(m: MemberSource): MemberInsights {
     deferral: deferralBreakdown(m.tasks),
     chronic: chronicCarryover(m.tasks),
     wip: wipSnapshot(m.wipTasks),
-    util: utilization(m.tasks),
+    util: utilization(m.tasks, m.workingDays),
     flow: flowMetrics(m.events),
     blocked: blockedDependencies(m.events),
     discipline: discipline(m.tasks, m.submittedPlans, m.workingDays),
