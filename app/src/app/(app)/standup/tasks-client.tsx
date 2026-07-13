@@ -805,8 +805,8 @@ export function TasksClient({
         <div className="flex items-center gap-1">
           <input
             type="number"
-            min="0.5"
-            step="0.5"
+            min="0.1667"
+            step="any"
             required
             value={estimate}
             onChange={(e) => setEstimate(e.target.value)}
@@ -1175,7 +1175,7 @@ function UnplannedWork({
                   <input
                     type="number"
                     min="0"
-                    step="0.5"
+                    step="any"
                     value={hours}
                     onChange={(e) => setHours(e.target.value)}
                     placeholder="Hours"
@@ -1455,8 +1455,8 @@ function QueueSection({
           <div className="flex items-center gap-1">
             <input
               type="number"
-              min="0.5"
-              step="0.5"
+              min="0.1667"
+              step="any"
               required
               value={estimate}
               onChange={(e) => setEstimate(e.target.value)}
@@ -1602,8 +1602,8 @@ function QueueRow({
             <span className="text-xs text-[#b0a99e]">Est.</span>
             <input
               type="number"
-              min="0.5"
-              step="0.5"
+              min="0.1667"
+              step="any"
               value={estimate}
               onChange={(e) => setEstimate(e.target.value)}
               onBlur={saveEstimate}
@@ -1750,8 +1750,8 @@ function WorkLogPanel({
         <div className="flex items-center gap-1">
           <input
             type="number"
-            min="0.25"
-            step="0.25"
+            min="0.1667"
+            step="any"
             max="24"
             value={hours}
             onChange={(e) => setHours(e.target.value)}
@@ -2113,7 +2113,7 @@ function TaskRow({
             <input
               type="number"
               min="0"
-              step="0.5"
+              step="any"
               value={actual}
               onChange={(e) => setActual(e.target.value)}
               onBlur={() =>

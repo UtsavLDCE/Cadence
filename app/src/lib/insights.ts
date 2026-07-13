@@ -214,6 +214,71 @@ export function utilization(tasks: InsightTaskRow[]): Utilization {
   };
 }
 
+// --- Discipline: the daily planning ritual + follow-through -----------------
+// Three habits that make daily planning trustworthy, rolled into one score:
+//   1. Plan submission — did they commit a plan on working days at all
+//      (submitted DayPlans ÷ working days in the window).
+//   2. Follow-through  — did committed work actually get done (DONE ÷ committed).
+//   3. On-plan delivery — did committed work land on its day vs slip
+//      (1 − deferred ÷ committed).
+// "Committed" = originally-planned tasks: excludes ⚡ unplanned work and the
+// carry-forward COPIES of deferred tasks (deferredFromDate set), so the deferred
+// ORIGINAL is what counts against on-plan delivery — not counted twice.
+// Each habit is a 0..1 ratio; the score weights them and renormalizes over
+// whichever have data, so a member with no committed work yet isn't punished for
+// a missing component. Tone: >=75 healthy, 50-74 watch, <50 concern.
+export type Discipline = {
+  submittedPlans: number;
+  workingDays: number;
+  submissionPct: number | null; // submittedPlans / workingDays, capped 100
+  committed: number; // originally-planned tasks in window
+  completed: number;
+  completionPct: number | null;
+  deferred: number; // committed tasks that slipped to a later day
+  onPlanPct: number | null; // 1 - deferred/committed
+  score: number | null; // weighted composite 0-100
+  tone: PlanningTone; // ok=healthy | over=watch | under=concern | none
+};
+
+export function discipline(
+  tasks: InsightTaskRow[],
+  submittedPlans: number,
+  workingDays: number,
+): Discipline {
+  const submissionRatio = workingDays > 0 ? Math.min(1, submittedPlans / workingDays) : null;
+
+  const committedTasks = tasks.filter((t) => !t.unplanned && !t.deferredFromDate);
+  const committed = committedTasks.length;
+  const completed = committedTasks.filter((t) => t.status === "DONE").length;
+  const deferred = committedTasks.filter((t) => t.deferredToDate).length;
+  const completionRatio = committed > 0 ? completed / committed : null;
+  const onPlanRatio = committed > 0 ? 1 - deferred / committed : null;
+
+  // Weighted composite, renormalized over the components that actually have data.
+  const parts: { w: number; v: number }[] = [];
+  if (submissionRatio != null) parts.push({ w: 0.4, v: submissionRatio });
+  if (completionRatio != null) parts.push({ w: 0.35, v: completionRatio });
+  if (onPlanRatio != null) parts.push({ w: 0.25, v: onPlanRatio });
+  const wSum = parts.reduce((s, p) => s + p.w, 0);
+  const score = wSum > 0 ? Math.round((100 * parts.reduce((s, p) => s + p.w * p.v, 0)) / wSum) : null;
+
+  const tone: PlanningTone =
+    score == null ? "none" : score >= 75 ? "ok" : score >= 50 ? "over" : "under";
+
+  return {
+    submittedPlans,
+    workingDays,
+    submissionPct: submissionRatio != null ? Math.round(submissionRatio * 100) : null,
+    committed,
+    completed,
+    completionPct: completionRatio != null ? Math.round(completionRatio * 100) : null,
+    deferred,
+    onPlanPct: onPlanRatio != null ? Math.round(onPlanRatio * 100) : null,
+    score,
+    tone,
+  };
+}
+
 // --- 5 & 7. Flow metrics from the status-event log --------------------------
 // cycle time  = hours from first IN_PROGRESS to the DONE that follows it.
 // blocked time = cumulative hours a task sat in HOLD.
@@ -403,6 +468,7 @@ export type MemberInsights = {
   util: Utilization;
   flow: FlowMetrics;
   blocked: BlockedDependency[];
+  discipline: Discipline;
 };
 
 export type MemberSource = {
@@ -414,6 +480,8 @@ export type MemberSource = {
   wipTasks: InsightTaskRow[]; // current live tasks (snapshot, any date)
   events: InsightEventRow[]; // status events for this member's tasks in window
   interruptionLogCount: number;
+  submittedPlans: number; // submitted DayPlans in window
+  workingDays: number; // weekdays in window (shared denominator for submission rate)
 };
 
 export function buildMemberInsights(m: MemberSource): MemberInsights {
@@ -431,6 +499,7 @@ export function buildMemberInsights(m: MemberSource): MemberInsights {
     util: utilization(m.tasks),
     flow: flowMetrics(m.events),
     blocked: blockedDependencies(m.events),
+    discipline: discipline(m.tasks, m.submittedPlans, m.workingDays),
   };
 }
 
@@ -448,6 +517,9 @@ export type TeamInsights = {
   overloadedWip: number; // people over the WIP threshold
   capacityHours: number; // memberCount * WORKDAY_HOURS (one workday's worth)
   blocked: BlockedDependency[]; // cross-team dependencies the team waits on
+  // Team discipline roll-up: average score, team-wide plan-submission rate, and
+  // how many people sit in the concern band (score < 50).
+  discipline: { avgScore: number | null; submissionPct: number | null; lowCount: number };
 };
 
 export function buildTeamInsights(
@@ -461,6 +533,9 @@ export function buildTeamInsights(
     allTasks,
     members.reduce((s, m) => s + m.fire.interruptionLogCount, 0),
   );
+  const scored = members.filter((m) => m.discipline.score != null);
+  const submTotal = members.reduce((s, m) => s + m.discipline.submittedPlans, 0);
+  const workTotal = members.reduce((s, m) => s + m.discipline.workingDays, 0);
   return {
     windowDays,
     memberCount: members.length,
@@ -472,5 +547,12 @@ export function buildTeamInsights(
     overloadedWip: members.filter((m) => m.wip.inProgress >= WIP_THRESHOLD).length,
     capacityHours: members.length * WORKDAY_HOURS,
     blocked: blockedDependencies(allEvents),
+    discipline: {
+      avgScore: scored.length
+        ? Math.round(scored.reduce((s, m) => s + (m.discipline.score ?? 0), 0) / scored.length)
+        : null,
+      submissionPct: workTotal > 0 ? Math.round((100 * submTotal) / workTotal) : null,
+      lowCount: scored.filter((m) => (m.discipline.score ?? 100) < 50).length,
+    },
   };
 }

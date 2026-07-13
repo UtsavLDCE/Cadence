@@ -34,7 +34,7 @@ export function MemberMirror({
   const drift = me.estimate;
 
   return (
-    <div className="max-w-[1200px] mx-auto">
+    <div className="w-full max-w-[1400px]">
       <div className="flex items-start justify-between mb-[22px] gap-4 flex-wrap">
         <div>
           <h1 className="text-[28px] font-semibold tracking-[-0.02em] text-[#1c1a17] leading-tight">Your work patterns</h1>
@@ -47,6 +47,28 @@ export function MemberMirror({
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-[22px]">
+        {/* Discipline habits — the planning ritual reflected back as its three
+            components (submit a plan, finish it, keep it on its day). Shown as
+            separate signals, not a single grade — this is a mirror, not a score. */}
+        <Stat
+          label="Plans submitted"
+          value={me.discipline.submissionPct != null ? `${me.discipline.submissionPct}%` : "—"}
+          accent={me.discipline.submissionPct != null && me.discipline.submissionPct < 60 ? "#c08a2d" : "#3f8a5b"}
+          hint={`${me.discipline.submittedPlans} of ${me.discipline.workingDays} working days`}
+          alert={me.discipline.submissionPct != null && me.discipline.submissionPct < 60}
+        />
+        <Stat
+          label="Follow-through"
+          value={me.discipline.completionPct != null ? `${me.discipline.completionPct}%` : "—"}
+          accent={me.discipline.completionPct != null && me.discipline.completionPct < 60 ? "#c08a2d" : "#3f8a5b"}
+          hint={me.discipline.committed ? `${me.discipline.completed} of ${me.discipline.committed} planned done` : "no planned work yet"}
+        />
+        <Stat
+          label="On-plan delivery"
+          value={me.discipline.onPlanPct != null ? `${me.discipline.onPlanPct}%` : "—"}
+          accent={me.discipline.onPlanPct != null && me.discipline.onPlanPct < 75 ? "#c08a2d" : "#3f8a5b"}
+          hint={me.discipline.committed ? `${me.discipline.deferred} of ${me.discipline.committed} slipped to another day` : "landed on their planned day"}
+        />
         <Stat
           label="Estimate accuracy"
           value={drift.pct != null ? `${drift.pct}%` : "—"}

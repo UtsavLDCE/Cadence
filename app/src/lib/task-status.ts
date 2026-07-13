@@ -50,9 +50,17 @@ export const DEFERRAL_CAUSE_META: Record<DeferralCause, { label: string }> = {
   OTHER: { label: "Other" },
 };
 
+// Render hours to 10-minute precision. Sub-hour values show as minutes (e.g.
+// 0.1667 -> "10m") so the finer step on the effort inputs isn't flattened to a
+// misleading "0.2h". Whole hours stay "2h"; mixed show "1h 30m".
 export function fmtHours(n: number | null | undefined): string {
   if (n === null || n === undefined) return "—";
-  return `${Number.isInteger(n) ? n : n.toFixed(1)}h`;
+  const totalMin = Math.round(n * 60);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h && m) return `${h}h ${m}m`;
+  if (h) return `${h}h`;
+  return `${m}m`;
 }
 
 // Planning priority — three tiers. `rank` orders highest-priority first so a day

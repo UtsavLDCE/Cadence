@@ -1062,11 +1062,11 @@ function TaskListRow({
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-[#9c968d] mb-1 block">Estimate (h)</label>
-                  <input type="number" min="0.5" step="0.5" value={estimate} onChange={(e) => setEstimate(e.target.value)} placeholder="—" className={cn(inputCls, "w-24")} />
+                  <input type="number" min="0.1667" step="any" value={estimate} onChange={(e) => setEstimate(e.target.value)} placeholder="—" className={cn(inputCls, "w-24")} />
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-[#9c968d] mb-1 block">Actual (h)</label>
-                  <input type="number" min="0" step="0.5" value={actual} onChange={(e) => setActual(e.target.value)} placeholder="—" className={cn(inputCls, "w-24")} />
+                  <input type="number" min="0" step="any" value={actual} onChange={(e) => setActual(e.target.value)} placeholder="—" className={cn(inputCls, "w-24")} />
                 </div>
               </div>
               {error && <p className="text-sm text-primary">{error}</p>}
@@ -1261,8 +1261,8 @@ function AddTaskPanel({
             <div className="flex items-center gap-1">
               <input
                 type="number"
-                min="0.5"
-                step="0.5"
+                min="0.1667"
+                step="any"
                 value={estimate}
                 onChange={(e) => setEstimate(e.target.value)}
                 placeholder="Hours"
@@ -1614,8 +1614,8 @@ function AssignTaskForm({ memberId, memberName }: { memberId: string; memberName
         <div className="flex items-center gap-1">
           <input
             type="number"
-            min="0.5"
-            step="0.5"
+            min="0.1667"
+            step="any"
             value={estimate}
             onChange={(e) => setEstimate(e.target.value)}
             placeholder="Est."

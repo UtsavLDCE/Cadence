@@ -12,10 +12,10 @@ export default async function DashboardPage({
   const today = todayDate();
   const isManager = session!.user.role === "MANAGER" || session!.user.role === "ADMIN";
 
-  // Audience scope: "team" = only members of teams this manager manages
-  // (Team.managerId === me); "org" = everyone. Default is role-based — a manager
-  // lands on their own reports, an admin on the whole org. Members never reach
-  // the manager view below, so scope is irrelevant to them.
+  // Audience scope: "team" = only this manager's direct reports (User.managerId
+  // === me, the reporting line); "org" = everyone. Default is role-based — a
+  // manager lands on their own reports, an admin on the whole org. Members never
+  // reach the manager view below, so scope is irrelevant to them.
   const sp = await searchParams;
   const rawScope = Array.isArray(sp.scope) ? sp.scope[0] : sp.scope;
   const scope: "team" | "org" =
@@ -24,7 +24,7 @@ export default async function DashboardPage({
       : session!.user.role === "ADMIN"
         ? "org"
         : "team";
-  const scopeFilter = scope === "team" ? { team: { managerId: session!.user.id } } : {};
+  const scopeFilter = scope === "team" ? { managerId: session!.user.id } : {};
 
   const settings = await prisma.appSettings.upsert({
     where: { id: "singleton" },

@@ -9,7 +9,7 @@ import { TONE, Stat, BlockedList, CategoryBreakdown, CategoryByPerson, buildCate
 import { TimelineSelector } from "./timeline-selector";
 import { ScopeToggle, type Scope } from "@/components/scope-toggle";
 
-type SortKey = "name" | "drift" | "fire" | "reopens" | "wip";
+type SortKey = "name" | "discipline" | "drift" | "fire" | "reopens" | "wip";
 
 export function InsightsClient({
   team,
@@ -38,9 +38,13 @@ export function InsightsClient({
   // person's bar below.
   const colorOf = buildCategoryColors(categories);
   const [sort, setSort] = useState<SortKey>("drift");
+  const [filter, setFilter] = useState("");
 
   const sorted = [...members].sort((a, b) => {
     switch (sort) {
+      case "discipline":
+        // Lowest score first (who needs a look); null scores sink to the bottom.
+        return (a.discipline.score ?? 101) - (b.discipline.score ?? 101);
       case "drift":
         return Math.abs(b.estimate.variance) - Math.abs(a.estimate.variance);
       case "fire":
@@ -54,8 +58,14 @@ export function InsightsClient({
     }
   });
 
+  // Name/email filter — at ~50 members, finding one person needs a search box.
+  const q = filter.trim().toLowerCase();
+  const visible = q
+    ? sorted.filter((m) => `${m.name ?? ""} ${m.email ?? ""}`.toLowerCase().includes(q))
+    : sorted;
+
   return (
-    <div className="max-w-[1200px] mx-auto">
+    <div className="w-full">
       <div className="flex items-start justify-between mb-[22px] gap-4 flex-wrap">
         <div>
           <h1 className="text-[28px] font-semibold tracking-[-0.02em] text-[#1c1a17] leading-tight">Productivity leaks</h1>
@@ -72,7 +82,26 @@ export function InsightsClient({
 
       {/* Team headline strip — level + weekly trend so a manager reads direction,
           not just a point-in-time number. */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-[22px]">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 mb-[22px]">
+        <Stat
+          label="Discipline"
+          value={team.discipline.avgScore != null ? String(team.discipline.avgScore) : "—"}
+          accent={
+            team.discipline.avgScore == null
+              ? "#b0a99e"
+              : team.discipline.avgScore >= 75
+                ? "#3f8a5b"
+                : team.discipline.avgScore >= 50
+                  ? "#c08a2d"
+                  : "#c0392b"
+          }
+          hint={
+            team.discipline.submissionPct != null
+              ? `${team.discipline.submissionPct}% plans submitted${team.discipline.lowCount ? ` · ${team.discipline.lowCount} need a look` : ""}`
+              : "no plan data yet"
+          }
+          alert={team.discipline.lowCount > 0}
+        />
         <Stat
           label="Estimate drift"
           value={team.estimate.pct != null ? `${team.estimate.pct}%` : "—"}
@@ -124,48 +153,73 @@ export function InsightsClient({
         emptyHint="Nothing logged as blocked yet. When someone puts a task on hold, they can name who it's waiting on — those dependencies surface here."
       />
 
-      {/* Where time goes — effort split by category, team-wide then per person. */}
-      <CategoryBreakdown categories={categories} />
-      <CategoryByPerson members={membersCategories} colorOf={colorOf} />
+      {/* Below KPIs: main analytics on the left (3/4), the per-person "where time
+          goes" rail on the right (1/4). */}
+      <div className="flex gap-[22px] items-start">
+        <div className="flex-1 min-w-0">
+          {/* Where time goes — team-wide effort split by category. */}
+          <CategoryBreakdown categories={categories} />
 
-      {/* Per-member breakdown */}
-      <div className="bg-white rounded-[16px] border border-[#ece8e1] p-[22px]">
+          {/* Per-member breakdown */}
+          <div className="bg-white rounded-[16px] border border-[#ece8e1] p-[22px]">
         <div className="flex items-center justify-between mb-3.5 gap-4 flex-wrap">
-          <h2 className="text-sm font-semibold text-[#1c1a17]">By person</h2>
-          <label className="text-xs text-[#9c968d] flex items-center gap-2">
-            Sort by
-            <select
-              value={sort}
-              onChange={(e) => setSort(e.target.value as SortKey)}
-              className="border border-[#e7e3dd] rounded-lg px-2 py-1 text-xs text-[#6b665f] focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
-            >
-              <option value="drift">Estimate drift</option>
-              <option value="fire">Firefighting</option>
-              <option value="reopens">Rework</option>
-              <option value="wip">WIP</option>
-              <option value="name">Name</option>
-            </select>
-          </label>
+          <h2 className="text-sm font-semibold text-[#1c1a17]">
+            By person
+            <span className="ml-2 mono text-xs font-normal text-[#b0a99e]">
+              {visible.length}
+              {q && visible.length !== members.length ? ` of ${members.length}` : ""}
+            </span>
+          </h2>
+          <div className="flex items-center gap-3 flex-wrap">
+            <input
+              type="search"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Filter by name…"
+              className="border border-[#e7e3dd] rounded-lg px-2.5 py-1 text-xs text-[#6b665f] w-[180px] focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
+            />
+            <label className="text-xs text-[#9c968d] flex items-center gap-2">
+              Sort by
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value as SortKey)}
+                className="border border-[#e7e3dd] rounded-lg px-2 py-1 text-xs text-[#6b665f] focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
+              >
+                <option value="discipline">Discipline</option>
+                <option value="drift">Estimate drift</option>
+                <option value="fire">Firefighting</option>
+                <option value="reopens">Rework</option>
+                <option value="wip">WIP</option>
+                <option value="name">Name</option>
+              </select>
+            </label>
+          </div>
         </div>
 
         {members.length === 0 ? (
           <p className="text-sm text-[#b0a99e] py-6 text-center">No team members yet.</p>
+        ) : visible.length === 0 ? (
+          <p className="text-sm text-[#b0a99e] py-6 text-center">No members match &ldquo;{filter}&rdquo;.</p>
         ) : (
-          <div className="overflow-x-auto">
+          // Internal scroll + sticky header so 50 rows stay scannable without the
+          // column labels scrolling off. max-h keeps the page from becoming one
+          // giant scroll when the roster is large.
+          <div className="overflow-auto max-h-[70vh] rounded-[10px] border border-[#f2eee7]">
             <table className="w-full text-sm">
-              <thead>
+              <thead className="sticky top-0 z-10 bg-white">
                 <tr className="text-left text-[10px] tracking-[0.08em] uppercase text-[#b0a99e] border-b border-[#ece8e1]">
-                  <th className="py-2.5 pr-4 font-medium">Member</th>
-                  <th className="py-2.5 px-3 font-medium" title="Actual ÷ estimated over completed work">Est. drift</th>
-                  <th className="py-2.5 px-3 font-medium" title="Logged effort ÷ planned effort">Utilization</th>
-                  <th className="py-2.5 px-3 font-medium" title="Share of effort spent on unplanned/interruption work">Firefighting</th>
-                  <th className="py-2.5 px-3 font-medium" title="Open work right now">WIP</th>
-                  <th className="py-2.5 px-3 font-medium" title="Deferrals in window + top reason">Deferrals</th>
-                  <th className="py-2.5 px-3 font-medium" title="Flow from the status log (accrues going forward)">Flow</th>
+                  <th className="py-2.5 pl-4 pr-4 font-medium bg-white">Member</th>
+                  <th className="py-2.5 px-3 font-medium bg-white" title="Planning ritual + follow-through: plan submission, completion, on-plan delivery">Discipline</th>
+                  <th className="py-2.5 px-3 font-medium bg-white" title="Actual ÷ estimated over completed work">Est. drift</th>
+                  <th className="py-2.5 px-3 font-medium bg-white" title="Logged effort ÷ planned effort">Utilization</th>
+                  <th className="py-2.5 px-3 font-medium bg-white" title="Share of effort spent on unplanned/interruption work">Firefighting</th>
+                  <th className="py-2.5 px-3 font-medium bg-white" title="Open work right now">WIP</th>
+                  <th className="py-2.5 px-3 font-medium bg-white" title="Deferrals in window + top reason">Deferrals</th>
+                  <th className="py-2.5 px-3 font-medium bg-white" title="Flow from the status log (accrues going forward)">Flow</th>
                 </tr>
               </thead>
               <tbody>
-                {sorted.map((m) => (
+                {visible.map((m) => (
                   <MemberRow key={m.id} m={m} />
                 ))}
               </tbody>
@@ -178,6 +232,12 @@ export function InsightsClient({
           2026-07-01 — those columns fill in as work moves through statuses. Meetings and cross-team
           waiting happen between tasks, so a task tracker can&apos;t see them.
         </p>
+          </div>
+        </div>
+
+        <aside className="w-1/4 min-w-[240px] shrink-0">
+          <CategoryByPerson members={membersCategories} colorOf={colorOf} />
+        </aside>
       </div>
     </div>
   );
@@ -188,9 +248,25 @@ function MemberRow({ m }: { m: MemberInsights }) {
   const chronic = m.chronic;
   return (
     <tr className="border-b border-[#f2eee7] align-top">
-      <td className="py-3.5 pr-4">
+      <td className="py-3.5 pl-4 pr-4">
         <p className="text-sm font-medium text-[#1c1a17]">{m.name ?? m.email ?? "—"}</p>
         {m.team && <p className="text-[11px] text-[#b0a99e]">{m.team}</p>}
+      </td>
+
+      {/* Discipline */}
+      <td className="py-3.5 px-3">
+        {m.discipline.score == null ? (
+          <span className="mono text-[#b0a99e]">—</span>
+        ) : (
+          <div>
+            <span className="mono font-semibold" style={{ color: TONE[m.discipline.tone].color }}>
+              {m.discipline.score}
+            </span>
+            <p className="mono text-[10px] text-[#b0a99e]">
+              {m.discipline.submissionPct ?? 0}% plan · {m.discipline.completionPct ?? 0}% done · {m.discipline.onPlanPct ?? 0}% on-plan
+            </p>
+          </div>
+        )}
       </td>
 
       {/* Estimate drift */}

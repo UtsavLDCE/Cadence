@@ -100,6 +100,20 @@ function toEvent(e: EventSelected): InsightEventRow {
 
 const str = (v: string | string[] | undefined): string | undefined => (typeof v === "string" ? v : undefined);
 
+// Weekdays (Mon–Fri, UTC) in [start, endExclusive) — the denominator for the
+// discipline plan-submission rate. ponytail: weekends excluded; a team that
+// plans on weekends just reads higher, capped at 100% in discipline().
+function workingDaysBetween(start: Date, endExclusive: Date): number {
+  let n = 0;
+  const d = new Date(start);
+  while (d < endExclusive) {
+    const wd = d.getUTCDay();
+    if (wd !== 0 && wd !== 6) n++;
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return n;
+}
+
 export default async function InsightsPage({
   searchParams,
 }: {
@@ -111,10 +125,10 @@ export default async function InsightsPage({
   const today = todayDate();
   const sp = await searchParams;
 
-  // Audience scope for the team view: "team" = only members of teams this
-  // manager manages (Team.managerId === me); "org" = everyone. Role-based default
-  // (manager → own reports, admin → whole org). Members get the personal mirror
-  // below and never see the scope toggle.
+  // Audience scope for the team view: "team" = only this manager's direct
+  // reports (User.managerId === me, the reporting line); "org" = everyone.
+  // Role-based default (manager → own reports, admin → whole org). Members get
+  // the personal mirror below and never see the scope toggle.
   const rawScope = str(sp.scope);
   const scope: "team" | "org" =
     rawScope === "team" || rawScope === "org"
@@ -122,13 +136,14 @@ export default async function InsightsPage({
       : session!.user.role === "ADMIN"
         ? "org"
         : "team";
-  const scopeFilter = scope === "team" ? { team: { managerId: session!.user.id } } : {};
+  const scopeFilter = scope === "team" ? { managerId: session!.user.id } : {};
   const range = resolveRange({ range: str(sp.range), from: str(sp.from), to: str(sp.to) }, today);
   const windowStartISO = range.start.toISOString();
   const bucketDays = trendBucketDays(range.days);
   // Windowed queries use [start, endExclusive) so both @db.Date and datetime
   // columns are bounded on the same inclusive-day span.
   const dateWindow = { gte: range.start, lt: range.endExclusive };
+  const workingDays = workingDaysBetween(range.start, range.endExclusive);
 
   const categoryRows = await prisma.taskCategory.findMany({ select: { id: true, name: true } });
   const categoryNames = new Map(categoryRows.map((c) => [c.id, c.name]));
@@ -136,7 +151,7 @@ export default async function InsightsPage({
   // -------------------------------------------------------------- Member mirror
   if (!isManager) {
     const uid = session!.user.id;
-    const [windowTasks, wipTasks, events, interruptionCount] = await Promise.all([
+    const [windowTasks, wipTasks, events, interruptionCount, submittedPlans] = await Promise.all([
       prisma.dailyTask.findMany({ where: { userId: uid, date: dateWindow }, select: taskSelect }),
       prisma.dailyTask.findMany({
         where: { userId: uid, status: { in: ["IN_PROGRESS", "HOLD"] }, deferredToDate: null },
@@ -147,6 +162,7 @@ export default async function InsightsPage({
         select: { taskId: true, userId: true, from: true, to: true, at: true, blockedOn: true, note: true },
       }),
       prisma.interruption.count({ where: { userId: uid, date: dateWindow } }),
+      prisma.dayPlan.count({ where: { userId: uid, submittedAt: { not: null }, date: dateWindow } }),
     ]);
 
     const rows = windowTasks.map(toRow);
@@ -159,6 +175,8 @@ export default async function InsightsPage({
       wipTasks: wipTasks.map(toRow),
       events: events.map(toEvent),
       interruptionLogCount: interruptionCount,
+      submittedPlans,
+      workingDays,
     });
     const categories = categoryBreakdown(rows, categoryNames);
     const trends = computeTrends(rows, windowStartISO, range.days, bucketDays);
@@ -179,7 +197,7 @@ export default async function InsightsPage({
   // ---------------------------------------------------------------- Team view
   // Everyone is in the report — members, managers, and admins — except users an
   // admin has explicitly excluded (`excludedFromInsights`).
-  const [members, windowTasks, wipTasks, events, interruptionGroups] = await Promise.all([
+  const [members, windowTasks, wipTasks, events, interruptionGroups, planGroups] = await Promise.all([
     prisma.user.findMany({
       where: { excludedFromInsights: false, ...scopeFilter },
       select: { id: true, name: true, email: true, team: { select: { name: true } } },
@@ -202,6 +220,11 @@ export default async function InsightsPage({
       where: { date: dateWindow, user: { excludedFromInsights: false, ...scopeFilter } },
       _count: { _all: true },
     }),
+    prisma.dayPlan.groupBy({
+      by: ["userId"],
+      where: { submittedAt: { not: null }, date: dateWindow, user: { excludedFromInsights: false, ...scopeFilter } },
+      _count: { _all: true },
+    }),
   ]);
 
   const allRows = windowTasks.map(toRow);
@@ -209,6 +232,8 @@ export default async function InsightsPage({
   const allEvents = events.map(toEvent);
   const intByUser: Record<string, number> = {};
   for (const g of interruptionGroups) intByUser[g.userId] = g._count._all;
+  const plansByUser: Record<string, number> = {};
+  for (const g of planGroups) plansByUser[g.userId] = g._count._all;
 
   const memberInsights = members.map((m) =>
     buildMemberInsights({
@@ -220,6 +245,8 @@ export default async function InsightsPage({
       wipTasks: allWip.filter((r) => r.userId === m.id),
       events: allEvents.filter((e) => e.userId === m.id),
       interruptionLogCount: intByUser[m.id] ?? 0,
+      submittedPlans: plansByUser[m.id] ?? 0,
+      workingDays,
     }),
   );
 
