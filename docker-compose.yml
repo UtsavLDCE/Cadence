@@ -46,7 +46,9 @@ services:
       AUTH_SECRET: ${AUTH_SECRET}
       AUTH_TRUST_HOST: "true"
     ports:
-      - "3000:3000"
+      # Host port 80 (default http, no :port in URL). Override with PORT env.
+      # Next.js listens on 3000 inside the container.
+      - "${PORT:-80}:3000"
 
 volumes:
   pgdata:
