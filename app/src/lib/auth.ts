@@ -6,6 +6,11 @@ import bcrypt from "bcryptjs";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
+  // Derive base URL from the request host so logout/callbacks work behind any
+  // host/IP without AUTH_URL. Set in config so it survives a stale/empty env —
+  // AUTH_TRUST_HOST wasn't reaching the container. App sits behind our own
+  // compose/proxy, not arbitrary Host headers, so this is safe.
+  trustHost: true,
   session: { strategy: "jwt" },
   providers: [
     Credentials({
