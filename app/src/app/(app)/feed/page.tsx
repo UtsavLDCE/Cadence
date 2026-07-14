@@ -1,12 +1,12 @@
 import { auth } from "@/lib/auth";
-import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { todayDate, formatDate } from "@/lib/utils";
 import { fmtHours, STATUS_META, PRIORITY_META, type TaskStatus, type Priority } from "@/lib/task-status";
 
-// Daily Feed — manager/admin only. One date, every user in one list: did they
-// submit a plan / standup, what they planned, and what they achieved that day.
-// Answers "who added status or not, what's planned, what got done through the day".
+// Daily Feed — visible to everyone. Scope is self + direct reports (anyone whose
+// managerId is you); admin sees the whole org. One date, every in-scope user in
+// one list: did they submit a plan / standup, what they planned, what they got
+// done. A member with no reports just sees their own day.
 //
 // Date picker is a native form GET (submits ?date=) plus prev/next day links —
 // no client JS. ponytail: server-only page; add a client picker only if the
@@ -25,8 +25,6 @@ export default async function FeedPage({
   searchParams: Promise<{ date?: string | string[] }>;
 }) {
   const session = await auth();
-  const isManager = session!.user.role === "MANAGER" || session!.user.role === "ADMIN";
-  if (!isManager) redirect("/dashboard");
 
   const sp = await searchParams;
   const raw = Array.isArray(sp.date) ? sp.date[0] : sp.date;

@@ -19,7 +19,7 @@ export function NavBar({ user }: { user: User }) {
   const links = [
     { href: "/standup", label: "My Day", roles: ["ADMIN", "MANAGER", "MEMBER"] },
     { href: "/tasks", label: "Task List", roles: ["ADMIN", "MANAGER"] },
-    { href: "/feed", label: "Daily Feed", roles: ["ADMIN", "MANAGER"] },
+    { href: "/feed", label: "Daily Feed", roles: ["ADMIN", "MANAGER", "MEMBER"] },
     { href: "/insights", label: "Insights", roles: ["ADMIN", "MANAGER", "MEMBER"] },
     { href: "/dashboard", label: "Team", roles: ["ADMIN", "MANAGER", "MEMBER"] },
     { href: "/profile", label: "Profile", roles: ["ADMIN", "MANAGER", "MEMBER"] },

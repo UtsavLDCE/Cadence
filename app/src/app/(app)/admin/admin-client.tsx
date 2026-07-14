@@ -45,7 +45,11 @@ export function AdminClient({ users, teams, settings }: Props) {
   const [nu, setNu] = useState({ name: "", email: "", password: "", role: "MEMBER", teamId: "", managerId: "" });
   const [creatingUser, setCreatingUser] = useState(false);
 
+  // Team-manager dropdown still uses actual managers/admins.
   const managers = users.filter((u) => u.role === "MANAGER" || u.role === "ADMIN");
+  // Reporting line (User.managerId) is just a user id — anyone can be someone's
+  // manager, so members can carry reports without being handed the MANAGER role.
+  const reportsTo = users;
 
   async function updateUser(userId: string, field: "role" | "teamId" | "managerId", value: string) {
     const res = await fetch("/api/users", {
@@ -226,7 +230,7 @@ export function AdminClient({ users, teams, settings }: Props) {
                   className="sm:col-span-2 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300"
                 >
                   <option value="">No manager</option>
-                  {managers.map((m) => (
+                  {reportsTo.map((m) => (
                     <option key={m.id} value={m.id}>Reports to: {m.name || m.email}</option>
                   ))}
                 </select>
@@ -291,7 +295,7 @@ export function AdminClient({ users, teams, settings }: Props) {
                       className="text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-300"
                     >
                       <option value="">No manager</option>
-                      {managers.filter((m) => m.id !== user.id).map((m) => (
+                      {reportsTo.filter((m) => m.id !== user.id).map((m) => (
                         <option key={m.id} value={m.id}>{m.name || m.email}</option>
                       ))}
                     </select>
