@@ -828,6 +828,16 @@ export function TasksClient({
 
       {error && <p className="text-sm text-primary">{error}</p>}
 
+          {/* Came up unplanned — log off-plan work; also the record of why the plan slipped.
+              Kept above the plan list so it's reachable without scrolling past every task. */}
+          <div>
+            <div className="flex items-center justify-between mb-2.5">
+              <span className="text-sm font-semibold text-[#1c1a17]">Came up unplanned</span>
+              <span className="text-xs text-[#b0a99e]">shows why the plan slipped</span>
+            </div>
+            <UnplannedWork onLog={logDone} todayStr={todayStr} categories={categories} onCreateCategory={createCategory} allTags={allTags} onCreateTag={createTag} />
+          </div>
+
       {/* Today's plan — the day's task list, grouped live → completed → deferred */}
       <div>
         <div className="flex items-center justify-between mb-2.5">
@@ -922,15 +932,6 @@ export function TasksClient({
         </div>
       )}
       </div>
-
-          {/* Came up unplanned — log off-plan work; also the record of why the plan slipped */}
-          <div>
-            <div className="flex items-center justify-between mb-2.5">
-              <span className="text-sm font-semibold text-[#1c1a17]">Came up unplanned</span>
-              <span className="text-xs text-[#b0a99e]">shows why the plan slipped</span>
-            </div>
-            <UnplannedWork onLog={logDone} todayStr={todayStr} categories={categories} onCreateCategory={createCategory} allTags={allTags} onCreateTag={createTag} />
-          </div>
         </div>
 
         {/* Supporting sidebar — context that feeds the plan without competing with it. */}
