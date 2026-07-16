@@ -48,10 +48,29 @@ export default async function MyDayPage() {
   const lockedDateSet = new Set(lockedPlans.map((p) => p.date.getTime()));
   const overdueWithLock = overdue.map((t) => ({ ...t, locked: lockedDateSet.has(t.date.getTime()) }));
 
+  // Who each of today's tasks was shared with, and whether they've accepted yet.
+  // Grouped by the source task so each row can show its recipients (yellow =
+  // still pending, green = accepted).
+  const taskIds = tasks.map((t) => t.id);
+  const sentInvites = taskIds.length
+    ? await prisma.taskInvite.findMany({
+        where: { fromUserId: session!.user.id, sourceTaskId: { in: taskIds } },
+        select: { sourceTaskId: true, status: true, toUser: { select: { name: true, email: true } } },
+      })
+    : [];
+  const sharedByTask = new Map<string, { name: string; status: string }[]>();
+  for (const inv of sentInvites) {
+    if (!inv.sourceTaskId) continue;
+    const list = sharedByTask.get(inv.sourceTaskId) ?? [];
+    list.push({ name: inv.toUser.name ?? inv.toUser.email ?? "Someone", status: inv.status });
+    sharedByTask.set(inv.sourceTaskId, list);
+  }
+  const tasksWithShares = tasks.map((t) => ({ ...t, sharedWith: sharedByTask.get(t.id) ?? [] }));
+
   return (
     <div>
       <TasksClient
-        initialTasks={JSON.parse(JSON.stringify(tasks))}
+        initialTasks={JSON.parse(JSON.stringify(tasksWithShares))}
         initialQueue={JSON.parse(JSON.stringify(queue))}
         initialOverdue={JSON.parse(JSON.stringify(overdueWithLock))}
         cutoffTime={settings.cutoffTime}

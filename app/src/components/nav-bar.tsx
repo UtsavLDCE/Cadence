@@ -3,7 +3,27 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
+
+// Count of pending shared-work invites, so "My Day" shows an unread badge.
+// Polls so an invite that arrives mid-session surfaces without a reload.
+// ponytail: 60s poll, no websocket — fine for a per-user count that isn't urgent.
+function useInviteCount(): number {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    let live = true;
+    const load = () =>
+      fetch("/api/invites")
+        .then((r) => (r.ok ? r.json() : []))
+        .then((d) => { if (live) setCount(Array.isArray(d) ? d.length : 0); })
+        .catch(() => {});
+    load();
+    const t = setInterval(load, 60_000);
+    return () => { live = false; clearInterval(t); };
+  }, []);
+  return count;
+}
 
 type User = {
   id: string;
@@ -15,6 +35,7 @@ type User = {
 
 export function NavBar({ user }: { user: User }) {
   const pathname = usePathname();
+  const inviteCount = useInviteCount();
 
   const links = [
     { href: "/standup", label: "My Day", roles: ["ADMIN", "MANAGER", "MEMBER"] },
@@ -51,6 +72,14 @@ export function NavBar({ user }: { user: User }) {
                   )}
                 >
                   {link.label}
+                  {link.href === "/standup" && inviteCount > 0 && (
+                    <span
+                      title={`${inviteCount} shared task${inviteCount > 1 ? "s" : ""} to review`}
+                      className="ml-1.5 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-semibold align-middle"
+                    >
+                      {inviteCount}
+                    </span>
+                  )}
                 </Link>
               );
             })}

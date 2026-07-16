@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { CategorySelect, useCategories, categoryName, type Category } from "@/components/category-select";
 import { TagInput, TagBadges, useTags, type Tag } from "@/components/tag-input";
+import { PeoplePicker, usePeople, personLabel, type Person } from "@/components/people-picker";
 import {
   TASK_STATUSES,
   STATUS_META,
@@ -56,7 +57,36 @@ type Task = {
   // Present on today's task rows (loaded with the page). Optional so the many
   // other places that build a Task locally (promote/carry results) don't need it.
   workLogs?: WorkLog[];
+  // People this task was shared with (via the ⚡ log-work "Share with" picker),
+  // and whether each has accepted. Drives the recipient badges on the row.
+  sharedWith?: SharedMember[];
 };
+
+// A shared-work recipient shown on the task row: yellow while PENDING, green
+// once ACCEPTED. Declined offers aren't shown.
+type SharedMember = { name: string; status: "PENDING" | "ACCEPTED" | "DECLINED" };
+
+// Recipient badges for a task the user shared. Renders nothing when unshared.
+function SharedMemberBadges({ members }: { members?: SharedMember[] }) {
+  const shown = (members ?? []).filter((m) => m.status !== "DECLINED");
+  if (shown.length === 0) return null;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      {shown.map((m, i) => (
+        <span
+          key={`${m.name}-${i}`}
+          title={m.status === "ACCEPTED" ? `${m.name} accepted` : `${m.name} — invited, not yet accepted`}
+          className={cn(
+            "text-[10px] font-medium rounded px-1.5 py-0.5",
+            m.status === "ACCEPTED" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700",
+          )}
+        >
+          {m.status === "ACCEPTED" ? "✓ " : ""}{m.name}
+        </span>
+      ))}
+    </span>
+  );
+}
 
 type QueueItem = {
   id: string;
@@ -71,6 +101,19 @@ type QueueItem = {
 // `locked` (its original day's plan was submitted) so we only offer a rename when
 // PATCH /api/tasks/:id would accept a title change.
 type OverdueTask = Task & { date: string; locked: boolean };
+
+// A shared-work offer from a teammate: accept to get a copy on my day, decline to drop.
+type Invite = {
+  id: string;
+  title: string;
+  notes: string | null;
+  estimatedHours: number | null;
+  actualHours: number | null;
+  priority: Priority;
+  wasDone: boolean;
+  createdAt: string;
+  fromUser: { id: string; name: string | null; email: string | null };
+};
 
 export function TasksClient({
   initialTasks,
@@ -108,6 +151,48 @@ export function TasksClient({
   const { categories, createCategory } = useCategories();
   // Team-wide free-form tag vocabulary, extensible inline. Many per task.
   const { tags: allTags, createTag } = useTags();
+  // Roster for the "Share with" picker (everyone but me).
+  const people = usePeople();
+  // Shared-work offers addressed to me. Fetched client-side so the server page
+  // stays untouched; accept copies onto today, decline drops it.
+  const [invites, setInvites] = useState<Invite[]>([]);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/invites")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d: Invite[]) => { if (alive) setInvites(d); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  // Accept an offer: server creates the task on my today (already DONE if the
+  // source was done work); fold it into the list if it landed on today.
+  async function acceptInvite(id: string) {
+    const res = await fetch(`/api/invites/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "accept" }),
+    });
+    if (res.ok) {
+      const created = await res.json();
+      setInvites((prev) => prev.filter((i) => i.id !== id));
+      if (typeof created.date === "string" && created.date.slice(0, 10) === todayStr) {
+        setTasks((prev) => [...prev, created]);
+      }
+    } else {
+      const d = await res.json().catch(() => ({}));
+      setError(d.error || "Couldn't accept this shared task.");
+    }
+  }
+
+  async function declineInvite(id: string) {
+    setInvites((prev) => prev.filter((i) => i.id !== id));
+    await fetch(`/api/invites/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "decline" }),
+    });
+  }
 
   const [submitted, setSubmitted] = useState(initialSubmitted);
   const [submitting, setSubmitting] = useState(false);
@@ -394,6 +479,7 @@ export function TasksClient({
     tagIds: string[],
     date: string,
     notes: string | null,
+    shareWithIds: string[] = [],
   ): Promise<boolean> {
     const res = await fetch("/api/tasks", {
       method: "POST",
@@ -410,6 +496,36 @@ export function TasksClient({
       // backdated log belongs to a past day and won't appear here.
       if (typeof created.date === "string" && created.date.slice(0, 10) === todayStr) {
         setTasks((prev) => [...prev, created]);
+      }
+      // Fan out a shared-work offer to anyone the user picked (e.g. meeting
+      // attendees). Best-effort: the log already succeeded, so a failed share
+      // just surfaces an error, it doesn't roll back the task.
+      if (shareWithIds.length > 0) {
+        const shareRes = await fetch("/api/invites", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            toUserIds: shareWithIds,
+            title,
+            notes,
+            actualHours,
+            categoryId,
+            wasDone: true,
+            sourceTaskId: created.id,
+          }),
+        });
+        if (!shareRes.ok) {
+          const d = await shareRes.json().catch(() => ({}));
+          setError(d.error || "Logged, but couldn't share it with everyone.");
+        } else {
+          // Reflect the fan-out on the row right away: everyone starts PENDING
+          // (yellow) until they accept. A reload re-reads real status from the DB.
+          const members: SharedMember[] = shareWithIds.map((id) => ({
+            name: personLabel(people.find((p) => p.id === id) ?? { id, name: null, email: null }),
+            status: "PENDING",
+          }));
+          setTasks((prev) => prev.map((t) => (t.id === created.id ? { ...t, sharedWith: members } : t)));
+        }
       }
       return true;
     }
@@ -569,6 +685,10 @@ export function TasksClient({
 
   return (
     <div className="space-y-5">
+      {invites.length > 0 && (
+        <InviteInbox invites={invites} onAccept={acceptInvite} onDecline={declineInvite} />
+      )}
+
       {overplanned && (
         <div className="flex items-start gap-3 bg-[#fdf7ec] border border-[#f0e2c4] text-[#a8791f] rounded-xl px-4 py-3 text-sm">
           <span className="mt-0.5 text-base leading-none">⚠️</span>
@@ -835,7 +955,7 @@ export function TasksClient({
               <span className="text-sm font-semibold text-[#1c1a17]">Came up unplanned</span>
               <span className="text-xs text-[#b0a99e]">shows why the plan slipped</span>
             </div>
-            <UnplannedWork onLog={logDone} todayStr={todayStr} categories={categories} onCreateCategory={createCategory} allTags={allTags} onCreateTag={createTag} />
+            <UnplannedWork onLog={logDone} todayStr={todayStr} categories={categories} onCreateCategory={createCategory} allTags={allTags} onCreateTag={createTag} people={people} />
           </div>
 
       {/* Today's plan — the day's task list, grouped live → completed → deferred */}
@@ -1011,13 +1131,15 @@ function UnplannedWork({
   onCreateCategory,
   allTags,
   onCreateTag,
+  people,
 }: {
-  onLog: (title: string, actualHours: number | null, categoryId: string | null, tagIds: string[], date: string, notes: string | null) => Promise<boolean>;
+  onLog: (title: string, actualHours: number | null, categoryId: string | null, tagIds: string[], date: string, notes: string | null, shareWithIds: string[]) => Promise<boolean>;
   todayStr: string;
   categories: Category[];
   onCreateCategory: (name: string) => Promise<Category | null>;
   allTags: Tag[];
   onCreateTag: (name: string) => Promise<Tag | null>;
+  people: Person[];
 }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
@@ -1025,6 +1147,7 @@ function UnplannedWork({
   const [hours, setHours] = useState("");
   const [category, setCategory] = useState<string | null>(null);
   const [tags, setTags] = useState<Tag[]>([]);
+  const [shareWith, setShareWith] = useState<Person[]>([]);
   const [date, setDate] = useState(todayStr);
   const [busy, setBusy] = useState(false);
   // Confirmation after a backdated log, since it won't appear in today's list.
@@ -1038,6 +1161,7 @@ function UnplannedWork({
     setHours("");
     setCategory(null);
     setTags([]);
+    setShareWith([]);
     setDate(todayStr);
   }
 
@@ -1074,6 +1198,7 @@ function UnplannedWork({
       tags.map((tag) => tag.id),
       date || todayStr,
       notes.trim() || null,
+      shareWith.map((p) => p.id),
     );
     setBusy(false);
     if (ok) {
@@ -1199,6 +1324,22 @@ function UnplannedWork({
             </div>
 
             <div>
+              <label className={labelCls}>Share with (optional)</label>
+              <PeoplePicker
+                value={shareWith}
+                onChange={setShareWith}
+                options={people}
+                placeholder="Who else was in on this? They can add it to their day."
+                className="w-full"
+              />
+              {shareWith.length > 0 && (
+                <p className="text-xs text-[#6b665f] mt-1">
+                  {shareWith.map(personLabel).join(", ")} will get this as a pending task to accept — it lands on their day too.
+                </p>
+              )}
+            </div>
+
+            <div>
               <label className={labelCls}>Day this happened</label>
               <input
                 type="date"
@@ -1237,6 +1378,65 @@ function UnplannedWork({
           </form>
         </div>
       )}
+    </div>
+  );
+}
+
+// Shared-work offers addressed to me — pinned at the top of My Day so they can't
+// be missed. Accept copies the work onto today (as done, if it was done work);
+// dismiss drops it. This is how a meeting one attendee logged reaches everyone
+// who was in it without each person re-logging from memory.
+function InviteInbox({
+  invites,
+  onAccept,
+  onDecline,
+}: {
+  invites: Invite[];
+  onAccept: (id: string) => Promise<void>;
+  onDecline: (id: string) => Promise<void>;
+}) {
+  return (
+    <div className="bg-[#eef0fb] border border-[#d9ddf5] rounded-xl px-4 py-3.5">
+      <p className="text-sm font-semibold text-[#3a3670] mb-2.5">
+        Shared with you
+        <span className="font-normal text-[#6a659a]"> · {invites.length} to review</span>
+      </p>
+      <div className="space-y-2">
+        {invites.map((inv) => {
+          const from = inv.fromUser.name || inv.fromUser.email || "Someone";
+          return (
+            <div
+              key={inv.id}
+              className="bg-white rounded-lg border border-[#e0e2f2] px-3 py-2.5 flex items-center justify-between gap-3 flex-wrap"
+            >
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-[#1c1a17] break-words">{inv.title}</p>
+                <p className="text-xs text-[#8a86a8] mt-0.5">
+                  from {from}
+                  {inv.wasDone && <span className="text-[#3f8a5b]"> · already done</span>}
+                  {inv.actualHours != null && ` · ${fmtHours(inv.actualHours)}`}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => onDecline(inv.id)}
+                  className="text-xs font-medium text-[#8a86a8] hover:text-[#4a453e] px-2.5 py-1.5"
+                >
+                  Dismiss
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onAccept(inv.id)}
+                  className="text-xs font-medium bg-[#5a52c0] hover:bg-[#4a43a8] text-white px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  Add to my day
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -2029,6 +2229,7 @@ function TaskRow({
               </span>
             )}
             <TagBadges tags={task.tags} />
+            <SharedMemberBadges members={task.sharedWith} />
           </div>
           <p className="text-xs text-[#b0a99e] mt-0.5">
             Est. {fmtHours(task.estimatedHours)}
