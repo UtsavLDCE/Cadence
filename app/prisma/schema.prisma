@@ -70,6 +70,8 @@ model User {
   workLogs      WorkLog[]
   queueItems    QueueItem[]
   dayPlans      DayPlan[]
+  invitesSent     TaskInvite[] @relation("InvitesSent")
+  invitesReceived TaskInvite[] @relation("InvitesReceived")
 }
 
 model Team {
@@ -305,6 +307,38 @@ model DayPlan {
   @@unique([userId, date])
 }
 
+// A shared-work offer: user A did (or planned) something with B and C — a meeting,
+// a joint task — and offers it to them so it lands on their day too, no one has to
+// remember to re-log it. An invite is not a live task: the receiver accepts (a
+// DailyTask is created on their today) or declines (nothing happens). Snapshots the
+// source fields so the offer is stable even if A later edits their own task. The
+// source/category/accepted ids are plain refs (no FK) — traceback only, so deleting
+// a category or the source task never blocks or cascades an invite.
+model TaskInvite {
+  id             String       @id @default(cuid())
+  fromUserId     String
+  toUserId       String
+  sourceTaskId   String?
+  title          String       @db.Text
+  notes          String?      @db.Text
+  estimatedHours Float?
+  actualHours    Float?
+  priority       Priority     @default(MEDIUM)
+  categoryId     String?
+  // The source was already-done work (a meeting that happened) vs. a planned task.
+  // On accept, done offers become DONE tasks; planned offers become TODO.
+  wasDone        Boolean      @default(false)
+  status         InviteStatus @default(PENDING)
+  // The DailyTask created on the receiver's day when they accept.
+  acceptedTaskId String?
+  createdAt      DateTime     @default(now())
+
+  fromUser User @relation("InvitesSent", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUser   User @relation("InvitesReceived", fields: [toUserId], references: [id], onDelete: Cascade)
+
+  @@index([toUserId, status])
+}
+
 model AppSettings {
   id          String   @id @default("singleton")
   cutoffTime  String   @default("12:00")
@@ -353,4 +387,11 @@ enum DeferralCause {
   BLOCKED
   DEPRIORITIZED
   OTHER
+}
+
+// Lifecycle of a shared-work offer (TaskInvite). Terminal once accepted/declined.
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
 }
