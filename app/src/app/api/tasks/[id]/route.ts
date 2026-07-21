@@ -43,6 +43,32 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
   const body = await req.json();
 
+  // Retroactive close-out: mark a past/overdue task DONE as of a specific day,
+  // recording the effort spent. Distinct from the forward move/defer path below
+  // (which only accepts future dates) — here the task is re-dated to the day it
+  // was actually finished. Allowed on a locked day, since completing and logging
+  // effort aren't plan-changing. Bounded to [planned day, today] so a task can't
+  // be completed before it existed or in the future.
+  if (body.status === "DONE" && body.completedDate !== undefined) {
+    const done = parseLocalDate(body.completedDate);
+    if (!done) {
+      return NextResponse.json({ error: "Provide a valid completion date (YYYY-MM-DD)." }, { status: 400 });
+    }
+    if (done.getTime() > todayDate().getTime()) {
+      return NextResponse.json({ error: "You can't complete a task on a future day." }, { status: 400 });
+    }
+    if (done.getTime() < existing.date.getTime()) {
+      return NextResponse.json({ error: "The completion date can't be before the task's planned day." }, { status: 400 });
+    }
+    const updated = await prisma.dailyTask.update({
+      where: { id },
+      data: { status: "DONE", completedAt: done, date: done, actualHours: parseHours(body.actualHours) },
+      include: TAGS_INCLUDE,
+    });
+    await recordStatusChange(prisma, id, existing.userId, existing.status, "DONE");
+    return NextResponse.json(updated);
+  }
+
   // Is the task's current day locked? (plan submitted)
   const plan = await prisma.dayPlan.findUnique({
     where: { userId_date: { userId: session.user.id, date: existing.date } },

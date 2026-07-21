@@ -242,6 +242,15 @@ export function TasksClient({
     });
   }
 
+  // Yesterday as YYYY-MM-DD (local), matching todayStr's basis. Used to gate the
+  // retroactive "mark done" affordance on overdue rows (yesterday only) and the
+  // pre-submit catch-up reminder.
+  const yesterdayStr = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  })();
+
   // Earliest day a task can be moved to: tomorrow (local).
   const minMoveDate = (() => {
     const d = new Date();
@@ -262,6 +271,17 @@ export function TasksClient({
     if (keeping.length === 0) {
       setError("Keep at least one task in today's goal before submitting.");
       return;
+    }
+    // Catch-up nudge: if yesterday still has unfinished tasks, remind the user to
+    // close them out (mark done / defer in "My queue") before locking today.
+    // Soft and skippable — they can proceed regardless.
+    const yesterdayPending = overdue.filter((t) => t.date.slice(0, 10) === yesterdayStr).length;
+    if (yesterdayPending > 0) {
+      const ok = window.confirm(
+        `You have ${yesterdayPending} unfinished ${yesterdayPending === 1 ? "task" : "tasks"} from yesterday. ` +
+          `You can mark ${yesterdayPending === 1 ? "it" : "them"} done or defer in "My queue" first. Submit today's goal anyway?`,
+      );
+      if (!ok) return;
     }
     const confirmMsg = toQueue.length
       ? `Submit today's goal? ${toQueue.length} unchecked ${toQueue.length === 1 ? "task moves" : "tasks move"} to your queue, and the rest are locked for the day — you can still update status, effort, and notes, or move a task to another day.`
@@ -636,6 +656,49 @@ export function TasksClient({
     } else {
       const d = await res.json().catch(() => ({}));
       setError(d.error || "Failed to bring this task forward.");
+    }
+  }
+
+  // Close out an overdue task without pulling it into today first: mark it DONE as
+  // of the day it was actually finished, recording the effort spent. The server
+  // re-dates the task to that day, so if it was finished today it joins today's
+  // list; otherwise it just drops off the overdue list.
+  async function completeOverdue(id: string, completedDate: string, hours: number | null) {
+    const res = await fetch(`/api/tasks/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "DONE", completedDate, actualHours: hours }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      setError(d.error || "Couldn't mark this task done.");
+      return;
+    }
+    const done = await res.json();
+    setOverdue((prev) => prev.filter((t) => t.id !== id));
+    if (typeof done.date === "string" && done.date.slice(0, 10) === todayStr) {
+      setTasks((prev) => [...prev, done]);
+    }
+  }
+
+  // Complete a backlog item directly: the server creates a DONE task dated the day
+  // it was finished (carrying the item's fields + effort) and removes the queue
+  // item. Mirror that locally, folding it into today's list if it landed on today.
+  async function completeQueue(id: string, completedDate: string, hours: number | null) {
+    const res = await fetch(`/api/queue/${id}/complete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ completedDate, actualHours: hours }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      setError(d.error || "Couldn't mark this item done.");
+      return;
+    }
+    const done = await res.json();
+    setQueue((prev) => prev.filter((q) => q.id !== id));
+    if (typeof done.date === "string" && done.date.slice(0, 10) === todayStr) {
+      setTasks((prev) => [...prev, done]);
     }
   }
 
@@ -1109,7 +1172,11 @@ export function TasksClient({
         onPromote={promote}
         onCarry={carry}
         onPatchOverdue={patchOverdue}
+        onCompleteOverdue={completeOverdue}
+        onCompleteQueue={completeQueue}
         locked={submitted}
+        yesterdayStr={yesterdayStr}
+        todayStr={todayStr}
       />
         </aside>
       </div>
@@ -1441,6 +1508,95 @@ function InviteInbox({
   );
 }
 
+// Compact "mark done" dialog: capture the day the work was finished and the
+// effort spent, then confirm. Used to close out an overdue task or a backlog item
+// without planning it into a day first.
+function MarkDoneDialog({
+  title,
+  defaultHours,
+  minDate,
+  maxDate,
+  onConfirm,
+  onClose,
+}: {
+  title: string;
+  defaultHours: number | null;
+  minDate?: string;
+  maxDate: string;
+  onConfirm: (date: string, hours: number | null) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [date, setDate] = useState(maxDate);
+  const [hours, setHours] = useState(defaultHours != null ? String(defaultHours) : "");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = prevOverflow; };
+  }, [onClose]);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const h = hours.trim() === "" ? null : Number(hours);
+    if (h !== null && (!Number.isFinite(h) || h <= 0)) return;
+    setSaving(true);
+    await onConfirm(date, h);
+    setSaving(false);
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4" onClick={onClose}>
+      <form
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={submit}
+        className="bg-white rounded-xl border border-[#ece8e1] shadow-lg w-full max-w-sm p-4 space-y-3"
+      >
+        <div>
+          <h3 className="text-sm font-semibold text-[#1c1a17]">Mark done</h3>
+          <p className="text-xs text-[#b0a99e] break-words mt-0.5">{title}</p>
+        </div>
+        <label className="block">
+          <span className="text-xs font-medium text-[#6b665f]">Done on</span>
+          <input
+            type="date"
+            value={date}
+            min={minDate}
+            max={maxDate}
+            onChange={(e) => setDate(e.target.value)}
+            className="mt-1 w-full border border-[#ece8e1] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium text-[#6b665f]">Effort spent (hours)</span>
+          <input
+            type="number"
+            min="0.1667"
+            step="any"
+            value={hours}
+            onChange={(e) => setHours(e.target.value)}
+            placeholder="Optional"
+            className="mt-1 w-full border border-[#ece8e1] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
+          />
+        </label>
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" onClick={onClose} className="text-xs font-medium text-[#8a86a8] hover:text-[#4a453e] px-3 py-1.5">Cancel</button>
+          <button
+            type="submit"
+            disabled={saving || !date}
+            className="text-xs font-medium bg-primary hover:bg-primary-hover disabled:opacity-50 text-white px-3 py-1.5 rounded-lg transition-colors"
+          >
+            {saving ? "Saving…" : "Mark done"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 // Whole days between an overdue task's planned day and today (UTC basis, since
 // the date is a @db.Date stored at UTC midnight).
 function overdueDaysLate(iso: string): number {
@@ -1454,17 +1610,27 @@ function OverdueRow({
   t,
   onCarry,
   onPatch,
+  onComplete,
   daysLate,
   locked,
+  yesterdayStr,
+  todayStr,
 }: {
   t: OverdueTask;
   onCarry: (id: string) => Promise<void>;
   onPatch: (id: string, body: Partial<Task>) => void;
+  onComplete: (id: string, completedDate: string, hours: number | null) => Promise<void>;
   daysLate: number;
   locked: boolean;
+  yesterdayStr: string;
+  todayStr: string;
 }) {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(t.title);
+  const [doneOpen, setDoneOpen] = useState(false);
+  // Retroactive close-out is offered for yesterday's tasks only — older overdue
+  // work stays carry-forward-only so history isn't rewritten far back.
+  const isYesterday = t.date.slice(0, 10) === yesterdayStr;
 
   function saveTitle() {
     const trimmed = titleDraft.trim();
@@ -1540,6 +1706,19 @@ function OverdueRow({
             <option key={p} value={p}>{PRIORITY_META[p].label}</option>
           ))}
         </select>
+        {/* Close it out where it sits — mark done as of the day it was finished,
+            recording effort — instead of pulling it into today first. Yesterday
+            only; works even on a locked day (completing isn't plan-changing). */}
+        {isYesterday && (
+          <button
+            type="button"
+            onClick={() => setDoneOpen(true)}
+            className="border border-[#cfe6d4] text-[#3f8a5b] hover:bg-[#f0f8f2] font-medium text-xs px-3 py-1.5 rounded-lg transition-colors shrink-0"
+            title="Mark this done with the day and effort it took"
+          >
+            ✓ Done
+          </button>
+        )}
         {!locked && (
           <button
             type="button"
@@ -1551,6 +1730,16 @@ function OverdueRow({
           </button>
         )}
       </div>
+      {doneOpen && (
+        <MarkDoneDialog
+          title={t.title}
+          defaultHours={t.estimatedHours}
+          minDate={yesterdayStr}
+          maxDate={todayStr}
+          onConfirm={(date, hours) => onComplete(t.id, date, hours)}
+          onClose={() => setDoneOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -1571,7 +1760,11 @@ function QueueSection({
   onPromote,
   onCarry,
   onPatchOverdue,
+  onCompleteOverdue,
+  onCompleteQueue,
   locked,
+  yesterdayStr,
+  todayStr,
 }: {
   queue: QueueItem[];
   overdue: OverdueTask[];
@@ -1581,7 +1774,11 @@ function QueueSection({
   onPromote: (id: string) => void;
   onCarry: (id: string) => Promise<void>;
   onPatchOverdue: (id: string, body: Partial<Task>) => void;
+  onCompleteOverdue: (id: string, completedDate: string, hours: number | null) => Promise<void>;
+  onCompleteQueue: (id: string, completedDate: string, hours: number | null) => Promise<void>;
   locked: boolean;
+  yesterdayStr: string;
+  todayStr: string;
 }) {
   const [title, setTitle] = useState("");
   const [estimate, setEstimate] = useState("");
@@ -1690,11 +1887,22 @@ function QueueSection({
                 t={e.task}
                 onCarry={onCarry}
                 onPatch={onPatchOverdue}
+                onComplete={onCompleteOverdue}
                 daysLate={overdueDaysLate(e.task.date)}
                 locked={locked}
+                yesterdayStr={yesterdayStr}
+                todayStr={todayStr}
               />
             ) : (
-              <QueueRow key={`q-${e.item.id}`} item={e.item} onPatch={onPatch} onRemove={onRemove} onPromote={onPromote} />
+              <QueueRow
+                key={`q-${e.item.id}`}
+                item={e.item}
+                onPatch={onPatch}
+                onRemove={onRemove}
+                onPromote={onPromote}
+                onComplete={onCompleteQueue}
+                todayStr={todayStr}
+              />
             ),
           )}
         </div>
@@ -1708,16 +1916,21 @@ function QueueRow({
   onPatch,
   onRemove,
   onPromote,
+  onComplete,
+  todayStr,
 }: {
   item: QueueItem;
   onPatch: (id: string, body: Partial<QueueItem>) => void;
   onRemove: (id: string) => void;
   onPromote: (id: string) => void;
+  onComplete: (id: string, completedDate: string, hours: number | null) => Promise<void>;
+  todayStr: string;
 }) {
   const [notes, setNotes] = useState(item.notes ?? "");
   const [notesOpen, setNotesOpen] = useState(Boolean(item.notes));
   const [estimate, setEstimate] = useState(item.estimatedHours?.toString() ?? "");
   const [promoting, setPromoting] = useState(false);
+  const [doneOpen, setDoneOpen] = useState(false);
   // Inline title edit — a backlog item has no day-lock, so renaming is always
   // allowed (PATCH /api/queue/:id accepts a title change unconditionally).
   const [editingTitle, setEditingTitle] = useState(false);
@@ -1843,6 +2056,16 @@ function QueueRow({
         >
           {promoting ? "Adding…" : "Add to today →"}
         </button>
+        {/* Already finished it? Log it done directly — pick the day and effort —
+            without first planning it into today. */}
+        <button
+          type="button"
+          onClick={() => setDoneOpen(true)}
+          className="border border-[#cfe6d4] text-[#3f8a5b] hover:bg-[#f0f8f2] font-medium text-xs px-3 py-1.5 rounded-lg transition-colors shrink-0"
+          title="Mark this done with the day and effort it took"
+        >
+          ✓ Done
+        </button>
         <button
           type="button"
           onClick={() => onRemove(item.id)}
@@ -1852,6 +2075,15 @@ function QueueRow({
           ✕
         </button>
       </div>
+      {doneOpen && (
+        <MarkDoneDialog
+          title={item.title}
+          defaultHours={item.estimatedHours}
+          maxDate={todayStr}
+          onConfirm={(date, hours) => onComplete(item.id, date, hours)}
+          onClose={() => setDoneOpen(false)}
+        />
+      )}
 
       {notesOpen ? (
         <textarea
