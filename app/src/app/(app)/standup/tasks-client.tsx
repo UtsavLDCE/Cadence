@@ -1271,7 +1271,7 @@ function UnplannedWork({
     if (ok) {
       setNote(
         backdated
-          ? `Logged to ${new Date(`${date}T00:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric" })} — it won't show in today's list.`
+          ? `Logged to ${fmtMoveDate(`${date}T00:00:00Z`)} — it won't show in today's list.`
           : null,
       );
       close();
@@ -2224,10 +2224,13 @@ function WorkLogPanel({
   );
 }
 
-// Short date label for a deferral target, e.g. "Jun 27". The value is a `@db.Date`
-// (UTC midnight), so format in UTC to render the stored calendar day everywhere.
+// Short date label, e.g. "27-06-2026". The value is a `@db.Date` (UTC midnight),
+// so read UTC parts to render the stored calendar day everywhere.
 function fmtMoveDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric" });
+  const d = new Date(iso);
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `${dd}-${mm}-${d.getUTCFullYear()}`;
 }
 
 // A single "Today at a glance" metric — mono label + big mono number, with an
