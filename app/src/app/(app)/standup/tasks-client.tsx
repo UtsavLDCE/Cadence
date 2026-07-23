@@ -606,6 +606,21 @@ export function TasksClient({
     return false;
   }
 
+  // Move an unstarted today task back into the backlog queue before submit. The
+  // server deletes the DailyTask and returns a QueueItem; mirror that locally.
+  // Blocked server-side once the day is locked (defer instead).
+  async function toQueue(id: string) {
+    const res = await fetch(`/api/tasks/${id}/to-queue`, { method: "POST" });
+    if (res.ok) {
+      const item = await res.json();
+      setTasks((prev) => prev.filter((t) => t.id !== id));
+      setQueue((prev) => [...prev, item]);
+    } else {
+      const d = await res.json().catch(() => ({}));
+      setError(d.error || "Couldn't move this task to the queue.");
+    }
+  }
+
   async function patchQueue(id: string, body: Partial<QueueItem>) {
     setQueue((prev) => prev.map((q) => (q.id === id ? { ...q, ...body } : q)));
     await fetch(`/api/queue/${id}`, {
@@ -1043,6 +1058,7 @@ export function TasksClient({
                   onPatch={patch}
                   onRemove={remove}
                   onMove={move}
+                  onToQueue={toQueue}
                   submitted={submitted}
                   canDeleteLocked={isManager}
                   minMoveDate={minMoveDate}
@@ -2266,6 +2282,7 @@ function TaskRow({
   onPatch,
   onRemove,
   onMove,
+  onToQueue,
   submitted,
   canDeleteLocked,
   minMoveDate,
@@ -2284,6 +2301,8 @@ function TaskRow({
   onPatch: (id: string, body: Partial<Task>, extra?: Record<string, unknown>) => void;
   onRemove: (id: string) => void;
   onMove: (id: string, date: string, cause?: DeferralCause, note?: string) => void;
+  // Move an unstarted task back to the queue (pre-submit only). Absent = not offered.
+  onToQueue?: (id: string) => void;
   submitted: boolean;
   // When true (manager/admin), the delete control stays available on a locked day.
   canDeleteLocked?: boolean;
@@ -2589,6 +2608,19 @@ function TaskRow({
             title="Focus this task in “Up next”"
           >
             ◎ Focus
+          </button>
+        )}
+
+        {/* Send back to the backlog queue — only pre-submit, and only for work not
+            yet started/done (server deletes the task and recreates it as a queue item). */}
+        {!submitted && !done && onToQueue && (
+          <button
+            type="button"
+            onClick={() => onToQueue(task.id)}
+            className="text-xs text-[#ddd8d0] hover:text-primary shrink-0"
+            title="Move to queue"
+          >
+            ↩ Queue
           </button>
         )}
 
