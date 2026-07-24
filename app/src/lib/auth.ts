@@ -29,6 +29,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const valid = await bcrypt.compare(password, user.password);
         if (!valid) return null;
 
+        // Stamp last login — the only server-side login signal (JWT sessions
+        // aren't persisted). Surfaced in the admin Engagement tab.
+        await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+
         return { id: user.id, name: user.name, email: user.email, image: user.image };
       },
     }),

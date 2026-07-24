@@ -56,6 +56,9 @@ model User {
   // When true, this user is hidden from the Insights team view. Admin-only toggle,
   // meant for excluding managers/admins (or any user) from the productivity report.
   excludedFromInsights Boolean @default(false)
+  // Stamped on each successful credential login (see lib/auth.ts). JWT sessions
+  // store nothing server-side, so this is the only real "last login" signal.
+  lastLoginAt   DateTime?
   createdAt     DateTime  @default(now())
 
   accounts      Account[]

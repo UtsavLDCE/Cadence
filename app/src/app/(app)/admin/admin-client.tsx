@@ -26,15 +26,18 @@ type Team = {
 
 type Settings = { cutoffTime: string; timezone: string };
 
+type Engagement = { lastActive: string | null; lastLogin: string | null; activeToday: boolean; tasks7: number; plans7: number; hours7: number };
+
 type Props = {
   users: User[];
   teams: Team[];
   settings: Settings;
+  engagement: Record<string, Engagement>;
 };
 
-export function AdminClient({ users, teams, settings }: Props) {
+export function AdminClient({ users, teams, settings, engagement }: Props) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<"users" | "roles" | "teams" | "settings">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "engagement" | "roles" | "teams" | "settings">("users");
   const [newTeamName, setNewTeamName] = useState("");
   const [newTeamManagerId, setNewTeamManagerId] = useState("");
   const [cutoffTime, setCutoffTime] = useState(settings.cutoffTime);
@@ -156,6 +159,7 @@ export function AdminClient({ users, teams, settings }: Props) {
       <div className="flex flex-wrap gap-1 mb-6">
         {([
           { key: "users", label: `Users (${users.length})` },
+          { key: "engagement", label: "Engagement" },
           { key: "roles", label: "Roles & Permissions" },
           { key: "teams", label: `Teams (${teams.length})` },
           { key: "settings", label: "Settings" },
@@ -321,6 +325,8 @@ export function AdminClient({ users, teams, settings }: Props) {
         </div>
       )}
 
+      {activeTab === "engagement" && <EngagementTab users={users} engagement={engagement} />}
+
       {activeTab === "roles" && <RolesTab />}
 
       {activeTab === "teams" && (
@@ -429,6 +435,98 @@ export function AdminClient({ users, teams, settings }: Props) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Human "how long ago" from an ISO timestamp. JWT sessions aren't stored, so
+// last-active is derived from the most recent task/plan/work-log/status activity.
+function fmtLastActive(iso: string | null): string {
+  if (!iso) return "Never";
+  const then = new Date(iso).getTime();
+  const mins = Math.floor((Date.now() - then) / 60000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+// Engagement view: who's active and how much they've logged in the last 7 days.
+// "Active today" is the honest stand-in for "currently logged in" — with JWT
+// sessions there's no server-side login/heartbeat to read, so recency of real
+// activity is the closest signal.
+function EngagementTab({ users, engagement }: { users: User[]; engagement: Record<string, Engagement> }) {
+  const activeToday = users.filter((u) => engagement[u.id]?.activeToday).length;
+  // Most-recently-active first; never-active users sink to the bottom.
+  const ordered = [...users].sort((a, b) => {
+    const ta = engagement[a.id]?.lastActive ? Date.parse(engagement[a.id].lastActive!) : 0;
+    const tb = engagement[b.id]?.lastActive ? Date.parse(engagement[b.id].lastActive!) : 0;
+    return tb - ta;
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <StatCard label="Total users" value={String(users.length)} />
+        <StatCard label="Active today" value={String(activeToday)} accent />
+        <StatCard label="Idle" value={String(users.length - activeToday)} />
+      </div>
+
+      <p className="text-xs text-gray-500">
+        &ldquo;Last login&rdquo; is stamped on each successful sign-in. &ldquo;Last active&rdquo; and the
+        7-day counts are derived from real activity (tasks, day plans, work logs, status
+        changes) — a user can be logged in without doing work, so the two can differ.
+      </p>
+
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">User</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600" title="Newest real activity (tasks, plans, work logs, status changes)">Last active</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600" title="Last successful login">Last login</th>
+              <th className="text-right px-4 py-3 font-medium text-gray-600" title="Tasks created in the last 7 days">Tasks (7d)</th>
+              <th className="text-right px-4 py-3 font-medium text-gray-600" title="Day plans submitted in the last 7 days">Plans (7d)</th>
+              <th className="text-right px-4 py-3 font-medium text-gray-600" title="Hours logged in the last 7 days">Hours (7d)</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {ordered.map((user) => {
+              const e = engagement[user.id];
+              return (
+                <tr key={user.id}>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className={cn("w-2 h-2 rounded-full shrink-0", e?.activeToday ? "bg-green-500" : "bg-gray-300")} />
+                      <div>
+                        <p className="font-medium text-gray-900">{user.name || "—"}</p>
+                        <p className="text-xs text-gray-500">{user.email}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-gray-600">{fmtLastActive(e?.lastActive ?? null)}</td>
+                  <td className="px-4 py-3 text-gray-600">{fmtLastActive(e?.lastLogin ?? null)}</td>
+                  <td className="px-4 py-3 text-right text-gray-900">{e?.tasks7 ?? 0}</td>
+                  <td className="px-4 py-3 text-right text-gray-900">{e?.plans7 ?? 0}</td>
+                  <td className="px-4 py-3 text-right text-gray-900">{(e?.hours7 ?? 0).toFixed(1)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function StatCard({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-4">
+      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</p>
+      <p className={cn("text-2xl font-bold mt-1", accent ? "text-green-600" : "text-gray-900")}>{value}</p>
     </div>
   );
 }
