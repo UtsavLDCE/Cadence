@@ -75,6 +75,7 @@ model User {
   dayPlans      DayPlan[]
   invitesSent     TaskInvite[] @relation("InvitesSent")
   invitesReceived TaskInvite[] @relation("InvitesReceived")
+  sprintItems     SprintItem[]
 }
 
 model Team {
@@ -346,7 +347,45 @@ model AppSettings {
   id          String   @id @default("singleton")
   cutoffTime  String   @default("12:00")
   timezone    String   @default("UTC")
+  // Which imported sprint version is "current" — drives the member My-Sprint view
+  // and the admin alignment roll-up. Set by admin on CSV import.
+  currentSprintVersion String?
   updatedAt   DateTime @updatedAt
+}
+
+// A work item imported from the external sprint tool (Azure DevOps-style CSV
+// export). Admin uploads a CSV per sprint version; rows are upserted keyed on
+// (version, externalId) so re-uploading the same sprint refreshes state/dates
+// rather than duplicating. Assignee is matched to a Cadence user by email
+// local-part (the MOTADATA login equals the part before "@"). userId is null
+// when no Cadence user matches — the item still imports, just unlinked.
+model SprintItem {
+  id           String    @id @default(cuid())
+  version      String
+  externalId   String
+  workItemType String?
+  state        String?
+  title        String    @db.Text
+  // Raw "Name <MOTADATA\login>" string, kept for display/audit.
+  assigneeRaw  String?   @db.Text
+  // Extracted login (the "vivek.patel" part), lowercased. Matching key.
+  assigneeLogin String?
+  userId       String?
+  tags         String?   @db.Text
+  storySize    String?
+  estimate     String?
+  priority     String?
+  createdBy    String?   @db.Text
+  startDate         DateTime? @db.Date
+  devCompletionDate DateTime? @db.Date
+  dueDate           DateTime? @db.Date
+  importedAt   DateTime  @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([version, externalId])
+  @@index([userId])
+  @@index([version])
 }
 
 enum UserRole {

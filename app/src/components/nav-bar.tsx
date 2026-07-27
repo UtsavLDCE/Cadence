@@ -33,18 +33,19 @@ type User = {
   role: "ADMIN" | "MANAGER" | "MEMBER";
 };
 
-export function NavBar({ user }: { user: User }) {
+export function NavBar({ user, hasSprint }: { user: User; hasSprint: boolean }) {
   const pathname = usePathname();
   const inviteCount = useInviteCount();
 
   const links = [
-    { href: "/standup", label: "My Day", roles: ["ADMIN", "MANAGER", "MEMBER"] },
-    { href: "/tasks", label: "Task List", roles: ["ADMIN", "MANAGER"] },
-    { href: "/feed", label: "Daily Feed", roles: ["ADMIN", "MANAGER", "MEMBER"] },
-    { href: "/insights", label: "Insights", roles: ["ADMIN", "MANAGER", "MEMBER"] },
-    { href: "/dashboard", label: "Team", roles: ["ADMIN", "MANAGER", "MEMBER"] },
-    { href: "/profile", label: "Profile", roles: ["ADMIN", "MANAGER", "MEMBER"] },
-  ].filter((l) => l.roles.includes(user.role));
+    { href: "/standup", label: "My Day", roles: ["ADMIN", "MANAGER", "MEMBER"], show: true },
+    { href: "/feed", label: "Daily Feed", roles: ["ADMIN", "MANAGER", "MEMBER"], show: true },
+    { href: "/insights", label: "Insights", roles: ["ADMIN", "MANAGER", "MEMBER"], show: true },
+    { href: "/sprint", label: "My Sprint", roles: ["ADMIN", "MANAGER", "MEMBER"], show: hasSprint },
+    { href: "/dashboard", label: "Team", roles: ["ADMIN", "MANAGER", "MEMBER"], show: true },
+    { href: "/tasks", label: "Task List", roles: ["ADMIN", "MANAGER"], show: true },
+    { href: "/profile", label: "Profile", roles: ["ADMIN", "MANAGER", "MEMBER"], show: true },
+  ].filter((l) => l.show && l.roles.includes(user.role));
 
   const initial = (user.name || user.email || "?")[0].toUpperCase();
   const adminActive = pathname.startsWith("/admin");

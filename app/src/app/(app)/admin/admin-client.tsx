@@ -28,16 +28,30 @@ type Settings = { cutoffTime: string; timezone: string };
 
 type Engagement = { lastActive: string | null; lastLogin: string | null; activeToday: boolean; tasks7: number; plans7: number; hours7: number };
 
+type SprintItemRow = {
+  id: string;
+  externalId: string;
+  title: string;
+  workItemType: string | null;
+  state: string | null;
+  priority: string | null;
+  matchedTaskTitle: string | null;
+  matchedTaskDate: string | null;
+};
+type SprintMember = { userId: string; name: string | null; email: string | null; total: number; matched: number; items: SprintItemRow[] };
+type Sprint = { version: string | null; totalItems: number; members: SprintMember[]; unassignedCount: number };
+
 type Props = {
   users: User[];
   teams: Team[];
   settings: Settings;
   engagement: Record<string, Engagement>;
+  sprint: Sprint;
 };
 
-export function AdminClient({ users, teams, settings, engagement }: Props) {
+export function AdminClient({ users, teams, settings, engagement, sprint }: Props) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<"users" | "engagement" | "roles" | "teams" | "settings">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "engagement" | "sprint" | "roles" | "teams" | "settings">("users");
   const [newTeamName, setNewTeamName] = useState("");
   const [newTeamManagerId, setNewTeamManagerId] = useState("");
   const [cutoffTime, setCutoffTime] = useState(settings.cutoffTime);
@@ -160,6 +174,7 @@ export function AdminClient({ users, teams, settings, engagement }: Props) {
         {([
           { key: "users", label: `Users (${users.length})` },
           { key: "engagement", label: "Engagement" },
+          { key: "sprint", label: "Sprint" },
           { key: "roles", label: "Roles & Permissions" },
           { key: "teams", label: `Teams (${teams.length})` },
           { key: "settings", label: "Settings" },
@@ -326,6 +341,8 @@ export function AdminClient({ users, teams, settings, engagement }: Props) {
       )}
 
       {activeTab === "engagement" && <EngagementTab users={users} engagement={engagement} />}
+
+      {activeTab === "sprint" && <SprintTab sprint={sprint} onMessage={setMessage} />}
 
       {activeTab === "roles" && <RolesTab />}
 
@@ -518,6 +535,162 @@ function EngagementTab({ users, engagement }: { users: User[]; engagement: Recor
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+// Sprint import + alignment. Admin uploads the sprint tool's CSV export; each
+// row is matched to a Cadence user by email local-part, then each member's
+// sprint items are compared (heuristically, by title) against the tasks they
+// actually logged — surfacing who is/ isn't working on the sprint.
+function SprintTab({
+  sprint,
+  onMessage,
+}: {
+  sprint: Sprint;
+  onMessage: (m: { type: "success" | "error"; text: string } | null) => void;
+}) {
+  const router = useRouter();
+  const [file, setFile] = useState<File | null>(null);
+  const [version, setVersion] = useState(sprint.version ?? "");
+  const [uploading, setUploading] = useState(false);
+
+  function onPick(f: File | null) {
+    setFile(f);
+    // Auto-fill version from a filename like "Version 8.7.6 (5).csv" → "8.7.6".
+    if (f && !version) {
+      const m = f.name.match(/(\d+\.\d+(?:\.\d+)?)/);
+      setVersion(m ? m[1] : f.name.replace(/\.csv$/i, ""));
+    }
+  }
+
+  async function upload() {
+    if (!file || !version.trim()) return;
+    setUploading(true);
+    onMessage(null);
+    try {
+      const csv = await file.text();
+      const res = await fetch("/api/sprint", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: version.trim(), csv }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok) {
+        onMessage({ type: "success", text: `Imported ${d.imported} items — ${d.matched} matched to users, ${d.unmatched} unmatched.` });
+        setFile(null);
+        router.refresh();
+      } else {
+        onMessage({ type: "error", text: d.error || "Import failed." });
+      }
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  const totalMatched = sprint.members.reduce((s, m) => s + m.matched, 0);
+  const totalAssigned = sprint.members.reduce((s, m) => s + m.total, 0);
+  const pct = totalAssigned ? Math.round((totalMatched / totalAssigned) * 100) : 0;
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <h2 className="font-semibold text-gray-900 mb-1">Import sprint CSV</h2>
+        <p className="text-xs text-gray-500 mb-4">
+          Upload the sprint tool export. Re-uploading the same version replaces its items
+          (a clean refresh). Assignees are matched to users by the part of their email
+          before the @.
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            onChange={(e) => onPick(e.target.files?.[0] ?? null)}
+            className="text-sm text-gray-600 file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-100"
+          />
+          <input
+            type="text"
+            value={version}
+            onChange={(e) => setVersion(e.target.value)}
+            placeholder="Version (e.g. 8.7.6)"
+            className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+          />
+          <button
+            type="button"
+            onClick={upload}
+            disabled={uploading || !file || !version.trim()}
+            className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            {uploading ? "Importing…" : "Import"}
+          </button>
+        </div>
+      </div>
+
+      {!sprint.version ? (
+        <p className="text-sm text-gray-400 text-center py-6">No sprint imported yet.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <StatCard label="Current sprint" value={sprint.version} />
+            <StatCard label="Work items" value={String(sprint.totalItems)} />
+            <StatCard label="On-sprint (matched)" value={`${pct}%`} accent />
+            <StatCard label="Unassigned items" value={String(sprint.unassignedCount)} />
+          </div>
+
+          <p className="text-xs text-gray-500">
+            &ldquo;Matched&rdquo; means a task the member logged looks like the sprint item
+            (title similarity — a best guess, not a hard link). Least-aligned members are
+            listed first. Unassigned items had no matching Cadence user.
+          </p>
+
+          <div className="space-y-2">
+            {sprint.members.map((m) => {
+              const mpct = m.total ? Math.round((m.matched / m.total) * 100) : 0;
+              return (
+                <details key={m.userId} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                  <summary className="flex items-center justify-between gap-3 px-4 py-3 cursor-pointer select-none hover:bg-gray-50">
+                    <div className="min-w-0">
+                      <p className="font-medium text-gray-900 truncate">{m.name || m.email || "—"}</p>
+                      <p className="text-xs text-gray-500 truncate">{m.email}</p>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className={cn("text-sm font-semibold", mpct >= 70 ? "text-green-600" : mpct >= 40 ? "text-amber-600" : "text-red-600")}>
+                        {m.matched}/{m.total} on sprint
+                      </span>
+                      <span className="text-xs text-gray-400 w-10 text-right">{mpct}%</span>
+                    </div>
+                  </summary>
+                  <div className="border-t border-gray-100 divide-y divide-gray-100">
+                    {m.items.map((it) => (
+                      <div key={it.id} className="px-4 py-2.5 text-sm">
+                        <div className="flex items-start gap-2">
+                          <span className={cn("mt-1.5 w-2 h-2 rounded-full shrink-0", it.matchedTaskTitle ? "bg-green-500" : "bg-gray-300")} />
+                          <div className="min-w-0">
+                            <p className="text-gray-900">
+                              <span className="text-gray-400">#{it.externalId}</span> {it.title}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {[it.workItemType, it.state, it.priority && `P${it.priority}`].filter(Boolean).join(" · ")}
+                            </p>
+                            {it.matchedTaskTitle ? (
+                              <p className="text-xs text-green-700 mt-0.5">↳ logged: {it.matchedTaskTitle}</p>
+                            ) : (
+                              <p className="text-xs text-gray-400 mt-0.5">↳ no matching logged task</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              );
+            })}
+            {sprint.members.length === 0 && (
+              <p className="text-sm text-gray-400 text-center py-6">No sprint items matched a Cadence user.</p>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
