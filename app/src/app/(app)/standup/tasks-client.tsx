@@ -60,6 +60,9 @@ type Task = {
   // People this task was shared with (via the ⚡ log-work "Share with" picker),
   // and whether each has accepted. Drives the recipient badges on the row.
   sharedWith?: SharedMember[];
+  // Set when a manager/admin dropped this task onto the member's day. Drives the
+  // "From <lead>" provenance badge so the member sees work handed to them.
+  assignedBy?: { name: string | null; email: string | null } | null;
 };
 
 // A shared-work recipient shown on the task row: yellow while PENDING, green
@@ -2484,6 +2487,14 @@ function TaskRow({
             )}
             <TagBadges tags={task.tags} />
             <SharedMemberBadges members={task.sharedWith} />
+            {task.assignedBy && (
+              <span
+                className="text-[10px] font-semibold rounded px-1.5 py-0.5 shrink-0 bg-blue-100 text-blue-700"
+                title={`Assigned by ${task.assignedBy.name || task.assignedBy.email || "your lead"}`}
+              >
+                From {task.assignedBy.name || task.assignedBy.email || "lead"}
+              </span>
+            )}
           </div>
           <p className="text-xs text-[#b0a99e] mt-0.5">
             Est. {fmtHours(task.estimatedHours)}

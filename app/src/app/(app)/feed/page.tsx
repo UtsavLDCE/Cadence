@@ -22,12 +22,13 @@ function shiftDay(iso: string, n: number): string {
 export default async function FeedPage({
   searchParams,
 }: {
-  searchParams: Promise<{ date?: string | string[] }>;
+  searchParams: Promise<{ date?: string | string[]; team?: string | string[] }>;
 }) {
   const session = await auth();
 
   const sp = await searchParams;
   const raw = Array.isArray(sp.date) ? sp.date[0] : sp.date;
+  const teamParam = Array.isArray(sp.team) ? sp.team[0] : sp.team; // team id, or "all"/undefined
   // Default today; only accept a real YYYY-MM-DD, else fall back.
   const targetDate =
     raw && /^\d{4}-\d{2}-\d{2}$/.test(raw) && !Number.isNaN(new Date(`${raw}T00:00:00.000Z`).getTime())
@@ -42,13 +43,16 @@ export default async function FeedPage({
       ? {}
       : { OR: [{ id: session!.user.id }, { managerId: session!.user.id }] };
 
-  const [users, tasks, dayPlans, standups] = await Promise.all([
+  const [users, teams, tasks, dayPlans, standups] = await Promise.all([
     // Everyone in scope who can own work — so people with no plan/status still show up.
     prisma.user.findMany({
       where: userScope,
-      select: { id: true, name: true, email: true, role: true },
+      select: { id: true, name: true, email: true, role: true, teamId: true },
       orderBy: [{ name: "asc" }],
     }),
+    // Team tabs are derived from the teams the in-scope users belong to, so the
+    // tab bar always matches real teams (Dev, QA, Devops, …) with no hardcoding.
+    prisma.team.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.dailyTask.findMany({
       where: { date: targetDate },
       select: {
@@ -67,6 +71,14 @@ export default async function FeedPage({
     }),
   ]);
 
+  // Only show tabs for teams that actually have an in-scope member. "ALL" first.
+  const teamIdsInScope = new Set(users.map((u) => u.teamId).filter(Boolean));
+  const teamTabs = teams.filter((t) => teamIdsInScope.has(t.id));
+  const activeTeam = teamTabs.some((t) => t.id === teamParam) ? teamParam : "all";
+
+  // Apply the team filter to the user list feeding the cards below.
+  const scopedUsers = activeTeam === "all" ? users : users.filter((u) => u.teamId === activeTeam);
+
   const planByUser = new Map(dayPlans.map((p) => [p.userId, p]));
   const standupUsers = new Set(standups.map((s) => s.userId));
   const tasksByUser = new Map<string, typeof tasks>();
@@ -78,7 +90,7 @@ export default async function FeedPage({
 
   // Show people with activity first (had tasks or submitted something), then the
   // rest so "who's missing" is visible at the bottom rather than buried.
-  const rows = users
+  const rows = scopedUsers
     .map((u) => {
       const uTasks = tasksByUser.get(u.id) ?? [];
       const plan = planByUser.get(u.id);
@@ -104,6 +116,9 @@ export default async function FeedPage({
   // strip instead of a red pill per card.
   const missing = rows.filter((r) => !r.submitted).map((r) => r.user.name || r.user.email || "Unknown");
 
+  // Preserve the active team when the date changes (and vice-versa).
+  const teamQ = activeTeam === "all" ? "" : `&team=${activeTeam}`;
+
   return (
     <div>
       <div className="flex items-end justify-between gap-4 flex-wrap mb-6">
@@ -116,13 +131,14 @@ export default async function FeedPage({
         {/* Native form GET (no JS) + prev/next day. */}
         <div className="flex items-center gap-1.5">
           <a
-            href={`/feed?date=${shiftDay(dateStr, -1)}`}
+            href={`/feed?date=${shiftDay(dateStr, -1)}${teamQ}`}
             className="px-2.5 py-1.5 rounded-lg border border-[#ece8e1] bg-white text-sm text-[#6b665f] hover:border-primary hover:text-primary transition-colors"
             title="Previous day"
           >
             ←
           </a>
           <form method="GET" className="flex items-center gap-1.5">
+            {activeTeam !== "all" && <input type="hidden" name="team" value={activeTeam} />}
             <input
               type="date"
               name="date"
@@ -139,7 +155,7 @@ export default async function FeedPage({
           </form>
           {dateStr < todayStr && (
             <a
-              href={`/feed?date=${shiftDay(dateStr, 1)}`}
+              href={`/feed?date=${shiftDay(dateStr, 1)}${teamQ}`}
               className="px-2.5 py-1.5 rounded-lg border border-[#ece8e1] bg-white text-sm text-[#6b665f] hover:border-primary hover:text-primary transition-colors"
               title="Next day"
             >
@@ -148,6 +164,30 @@ export default async function FeedPage({
           )}
         </div>
       </div>
+
+      {/* Team tabs — ALL + one per team with in-scope members. Server-side filter
+          via ?team=, keeps the selected date. Hidden when only one team exists. */}
+      {teamTabs.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap mb-4">
+          {[{ id: "all", name: "All" }, ...teamTabs].map((t) => {
+            const isActive = activeTeam === t.id || (t.id === "all" && activeTeam === "all");
+            const q = t.id === "all" ? `?date=${dateStr}` : `?date=${dateStr}&team=${t.id}`;
+            return (
+              <a
+                key={t.id}
+                href={`/feed${q}`}
+                className={
+                  isActive
+                    ? "px-3 py-1.5 rounded-lg text-sm font-semibold bg-primary text-white"
+                    : "px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-[#ece8e1] text-[#6b665f] hover:border-primary hover:text-primary transition-colors"
+                }
+              >
+                {t.name}
+              </a>
+            );
+          })}
+        </div>
+      )}
 
       {/* Who hasn't added a plan for the day — one strip, not a red pill per card. */}
       {missing.length > 0 ? (

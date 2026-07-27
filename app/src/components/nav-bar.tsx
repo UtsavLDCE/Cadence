@@ -44,6 +44,7 @@ export function NavBar({ user, hasSprint }: { user: User; hasSprint: boolean }) 
     { href: "/sprint", label: "My Sprint", roles: ["ADMIN", "MANAGER", "MEMBER"], show: hasSprint },
     { href: "/dashboard", label: "Team", roles: ["ADMIN", "MANAGER", "MEMBER"], show: true },
     { href: "/tasks", label: "Task List", roles: ["ADMIN", "MANAGER"], show: true },
+    { href: "/plan", label: "Plan Day", roles: ["ADMIN", "MANAGER"], show: true },
     { href: "/profile", label: "Profile", roles: ["ADMIN", "MANAGER", "MEMBER"], show: true },
   ].filter((l) => l.show && l.roles.includes(user.role));
 

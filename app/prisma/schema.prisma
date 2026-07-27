@@ -69,13 +69,15 @@ model User {
   reports       User[]         @relation("UserManager")
   standups      Standup[]
   interruptions Interruption[]
-  dailyTasks    DailyTask[]
+  dailyTasks    DailyTask[]    @relation("TaskOwner")
+  assignedTasks DailyTask[]    @relation("TaskAssigner")
   workLogs      WorkLog[]
   queueItems    QueueItem[]
   dayPlans      DayPlan[]
   invitesSent     TaskInvite[] @relation("InvitesSent")
   invitesReceived TaskInvite[] @relation("InvitesReceived")
   sprintItems     SprintItem[]
+  tags            Tag[]
 }
 
 model Team {
@@ -162,7 +164,14 @@ model DailyTask {
   deferralCause    DeferralCause?
   deferralNote     String?        @db.Text
 
-  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Provenance: when a manager/admin drops this task onto a member's day (via
+  // /api/manager/tasks), their user id is stamped here so both the member and the
+  // manager can see it was assigned by a lead vs. self-added. SetNull on delete so
+  // removing the assigner never orphans the task. Mirrors QueueItem.assignedById.
+  assignedById String?
+  assignedBy   User?             @relation("TaskAssigner", fields: [assignedById], references: [id], onDelete: SetNull)
+
+  user         User              @relation("TaskOwner", fields: [userId], references: [id], onDelete: Cascade)
   statusEvents TaskStatusEvent[]
   // Dated time-entries for work spent on this task. A task can accumulate effort
   // across many days (a long-running or multi-day task); each entry records the
@@ -193,6 +202,7 @@ model Tag {
   createdAt   DateTime   @default(now())
 
   tasks DailyTask[]
+  users User[]
 }
 
 // User-extensible task categories — Meeting, Discussion, Client Call, the

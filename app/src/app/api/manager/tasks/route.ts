@@ -78,6 +78,7 @@ export async function POST(req: NextRequest) {
       status: "TODO",
       priority: parsePriority(body.priority) ?? "MEDIUM",
       categoryId: category.id,
+      assignedById: session.user.id,
       tags: tagsConnectInput(tags.ids),
     },
     include: TAGS_INCLUDE,

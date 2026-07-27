@@ -112,6 +112,12 @@ export const PERMISSION_MATRIX: PermissionArea[] = [
         enforcedAt: "api/manager/tasks/route.ts",
       },
       {
+        label: "Plan a member's day",
+        detail: "From the Plan Day page, set a member's day goal and hand them tasks for any date. Managers plan for their direct reports; admins for anyone. Bypasses the member's day-lock.",
+        admin: "full", manager: "full", member: "none",
+        enforcedAt: "app/(app)/plan/page.tsx, api/day-plan/route.ts, api/manager/tasks/route.ts",
+      },
+      {
         label: "Edit any member's task",
         detail: "Change title, notes, priority, estimate, actual effort, status, category, and tags on anyone's task.",
         admin: "full", manager: "full", member: "none",

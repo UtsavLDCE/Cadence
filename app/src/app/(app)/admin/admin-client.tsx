@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { PERMISSION_MATRIX, ROLE_META, type Access, type Role } from "@/lib/permissions";
+import { TagInput, useTags, type Tag } from "@/components/tag-input";
 
 type User = {
   id: string;
@@ -15,6 +16,7 @@ type User = {
   excludedFromInsights: boolean;
   team: { id: string; name: string } | null;
   manager: { id: string; name: string | null; email: string | null } | null;
+  tags: Tag[];
 };
 
 type Team = {
@@ -51,6 +53,7 @@ type Props = {
 
 export function AdminClient({ users, teams, settings, engagement, sprint }: Props) {
   const router = useRouter();
+  const { tags: tagVocab, createTag } = useTags();
   const [activeTab, setActiveTab] = useState<"users" | "engagement" | "sprint" | "roles" | "teams" | "settings">("users");
   const [newTeamName, setNewTeamName] = useState("");
   const [newTeamManagerId, setNewTeamManagerId] = useState("");
@@ -76,6 +79,17 @@ export function AdminClient({ users, teams, settings, engagement, sprint }: Prop
     });
     if (res.ok) { router.refresh(); }
     else { setMessage({ type: "error", text: "Failed to update user." }); }
+  }
+
+  // Admin-only: assign the shared tag vocabulary to a user. Replaces the whole set.
+  async function setUserTags(userId: string, next: Tag[]) {
+    const res = await fetch("/api/users", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, tagIds: next.map((t) => t.id) }),
+    });
+    if (res.ok) { router.refresh(); }
+    else { setMessage({ type: "error", text: "Failed to update tags." }); }
   }
 
   // Admin-only: hide/show a user in the Insights team view.
@@ -272,6 +286,7 @@ export function AdminClient({ users, teams, settings, engagement, sprint }: Prop
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Role</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Team</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600" title="Who this user reports to.">Manager</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600" title="Tags on this user — shared vocabulary with task tags.">Tags</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600" title="Hide this user from the Insights team view — admin only.">
                   Exclude from Insights
                 </th>
@@ -318,6 +333,14 @@ export function AdminClient({ users, teams, settings, engagement, sprint }: Prop
                         <option key={m.id} value={m.id}>{m.name || m.email}</option>
                       ))}
                     </select>
+                  </td>
+                  <td className="px-4 py-3 min-w-[220px]">
+                    <TagInput
+                      value={user.tags}
+                      suggestions={tagVocab}
+                      onCreate={createTag}
+                      onChange={(next) => setUserTags(user.id, next)}
+                    />
                   </td>
                   <td className="px-4 py-3">
                     <label className="inline-flex items-center gap-2 cursor-pointer select-none">

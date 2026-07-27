@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
+import { resolveTagIds } from "@/lib/task-tags";
 
 const ROLES = ["ADMIN", "MANAGER", "MEMBER"] as const;
 type Role = (typeof ROLES)[number];
@@ -24,6 +25,7 @@ export async function GET() {
       managerId: true,
       team: { select: { id: true, name: true } },
       manager: { select: { id: true, name: true, email: true } },
+      tags: { select: { id: true, name: true } },
       createdAt: true,
     },
     orderBy: { name: "asc" },
@@ -97,18 +99,22 @@ export async function PATCH(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { userId, role, teamId, managerId, excludedFromInsights } = body as {
+  const { userId, role, teamId, managerId, excludedFromInsights, tagIds } = body as {
     userId: string;
     role?: "ADMIN" | "MANAGER" | "MEMBER";
     teamId?: string | null;
     managerId?: string | null;
     excludedFromInsights?: boolean;
+    tagIds?: string[];
   };
 
   // A user can't report to themselves.
   if (managerId && managerId === userId) {
     return NextResponse.json({ error: "A user cannot be their own manager" }, { status: 400 });
   }
+
+  const tags = await resolveTagIds(prisma, tagIds);
+  if (!tags.ok) return NextResponse.json({ error: "Unknown tag." }, { status: 400 });
 
   const updated = await prisma.user.update({
     where: { id: userId },
@@ -118,8 +124,10 @@ export async function PATCH(req: NextRequest) {
       ...(managerId !== undefined && { managerId }),
       // Admin-only: hide/show a user in the Insights team view.
       ...(typeof excludedFromInsights === "boolean" && { excludedFromInsights }),
+      // null ids => tagIds absent => leave tags untouched; array => replace set.
+      ...(tags.ids !== null && { tags: { set: tags.ids.map((id) => ({ id })) } }),
     },
-    select: { id: true, name: true, email: true, role: true, teamId: true, managerId: true, excludedFromInsights: true },
+    select: { id: true, name: true, email: true, role: true, teamId: true, managerId: true, excludedFromInsights: true, tags: { select: { id: true, name: true } } },
   });
 
   return NextResponse.json(updated);

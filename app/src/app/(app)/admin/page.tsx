@@ -37,6 +37,7 @@ export default async function AdminPage() {
         lastLoginAt: true,
         team: { select: { id: true, name: true } },
         manager: { select: { id: true, name: true, email: true } },
+        tags: { select: { id: true, name: true } },
       },
       orderBy: [{ role: "asc" }, { name: "asc" }],
     }),
