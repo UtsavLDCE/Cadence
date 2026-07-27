@@ -40,12 +40,12 @@ export function NavBar({ user, hasSprint }: { user: User; hasSprint: boolean }) 
   const links = [
     { href: "/standup", label: "My Day", roles: ["ADMIN", "MANAGER", "MEMBER"], show: true },
     { href: "/feed", label: "Daily Feed", roles: ["ADMIN", "MANAGER", "MEMBER"], show: true },
-    { href: "/insights", label: "Insights", roles: ["ADMIN", "MANAGER", "MEMBER"], show: true },
     { href: "/sprint", label: "My Sprint", roles: ["ADMIN", "MANAGER", "MEMBER"], show: hasSprint },
-    { href: "/dashboard", label: "Team", roles: ["ADMIN", "MANAGER", "MEMBER"], show: true },
-    { href: "/tasks", label: "Task List", roles: ["ADMIN", "MANAGER"], show: true },
     { href: "/plan", label: "Plan Day", roles: ["ADMIN", "MANAGER"], show: true },
-    { href: "/profile", label: "Profile", roles: ["ADMIN", "MANAGER", "MEMBER"], show: true },
+    { href: "/insights", label: "Insights", roles: ["ADMIN", "MANAGER"], show: true },
+    // ponytail: Team hidden for now — flip show:true to restore.
+    { href: "/dashboard", label: "Team", roles: ["ADMIN", "MANAGER"], show: false },
+    { href: "/tasks", label: "Task List", roles: ["ADMIN", "MANAGER"], show: true },
   ].filter((l) => l.show && l.roles.includes(user.role));
 
   const initial = (user.name || user.email || "?")[0].toUpperCase();
@@ -102,9 +102,19 @@ export function NavBar({ user, hasSprint }: { user: User; hasSprint: boolean }) 
           >
             {user.role}
           </span>
-          <span className="w-7 h-7 rounded-full bg-[#efe9e1] text-[#8a8378] flex items-center justify-center font-semibold">
+          <Link
+            href="/profile"
+            title="Profile"
+            aria-label="Profile"
+            className={cn(
+              "w-7 h-7 rounded-full flex items-center justify-center font-semibold transition-colors",
+              pathname === "/profile"
+                ? "bg-primary text-white"
+                : "bg-[#efe9e1] text-[#8a8378] hover:bg-[#e3ddd3]"
+            )}
+          >
             {initial}
-          </span>
+          </Link>
           {user.role === "ADMIN" && (
             <Link
               href="/admin"

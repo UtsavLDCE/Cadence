@@ -7,6 +7,7 @@ import {
   STATUS_META, PRIORITY_META, PRIORITIES, fmtHours,
   type Priority, type TaskStatus,
 } from "@/lib/task-status";
+import { CategorySelect, useCategories, type Category } from "@/components/category-select";
 
 type Member = { id: string; name: string | null; email: string | null };
 type Tag = { id: string; name: string };
@@ -45,6 +46,7 @@ export function PlanForMemberClient({
 }) {
   const router = useRouter();
   const memberName = member.name || member.email || "this member";
+  const { categories, createCategory } = useCategories();
 
   const plannedHours = initialTasks.reduce((s, t) => s + (t.estimatedHours ?? 0), 0);
 
@@ -79,7 +81,13 @@ export function PlanForMemberClient({
             ))}
           </ul>
         )}
-        <AddTaskForm userId={member.id} date={date} onCreated={() => router.refresh()} />
+        <AddTaskForm
+          userId={member.id}
+          date={date}
+          categories={categories}
+          createCategory={createCategory}
+          onCreated={() => router.refresh()}
+        />
       </div>
     </div>
   );
@@ -183,10 +191,23 @@ function TaskRow({ task, onDeleted }: { task: PlanTask; onDeleted: () => void })
   );
 }
 
-function AddTaskForm({ userId, date, onCreated }: { userId: string; date: string; onCreated: () => void }) {
+function AddTaskForm({
+  userId,
+  date,
+  categories,
+  createCategory,
+  onCreated,
+}: {
+  userId: string;
+  date: string;
+  categories: Category[];
+  createCategory: (name: string) => Promise<Category | null>;
+  onCreated: () => void;
+}) {
   const [title, setTitle] = useState("");
   const [priority, setPriority] = useState<Priority>("MEDIUM");
   const [estimate, setEstimate] = useState("");
+  const [categoryId, setCategoryId] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -210,12 +231,14 @@ function AddTaskForm({ userId, date, onCreated }: { userId: string; date: string
         title: t,
         priority,
         estimatedHours: estimate === "" ? undefined : Number(estimate),
+        categoryId: categoryId ?? undefined,
         notes: notes.trim() || undefined,
       }),
     });
     if (res.ok) {
       setTitle("");
       setEstimate("");
+      setCategoryId(null);
       setNotes("");
       setPriority("MEDIUM");
       onCreated();
@@ -237,7 +260,7 @@ function AddTaskForm({ userId, date, onCreated }: { userId: string; date: string
           className={fieldCls}
         />
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div>
           <label className={labelCls}>Priority</label>
           <select value={priority} onChange={(e) => setPriority(e.target.value as Priority)} className={cn(fieldCls, "bg-white")}>
@@ -256,6 +279,16 @@ function AddTaskForm({ userId, date, onCreated }: { userId: string; date: string
             onChange={(e) => setEstimate(e.target.value)}
             placeholder="e.g. 2"
             className={fieldCls}
+          />
+        </div>
+        <div>
+          <label className={labelCls}>Category (optional)</label>
+          <CategorySelect
+            categories={categories}
+            value={categoryId}
+            onChange={setCategoryId}
+            onCreate={createCategory}
+            className="w-full"
           />
         </div>
       </div>

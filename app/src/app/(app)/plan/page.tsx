@@ -134,21 +134,10 @@ export default async function PlanPage({
         </p>
       </div>
 
-      {/* Member + date selector — native GET, no client JS. */}
+      {/* Date selector — native GET, no client JS. Member is picked from the
+          roster list below, not a dropdown. */}
       <form method="GET" className="flex items-end gap-2 flex-wrap mb-6 bg-white rounded-xl border border-[#ece8e1] p-4">
-        <div>
-          <label className="block text-xs font-medium text-[#6b665f] mb-1">Member</label>
-          <select
-            name="member"
-            defaultValue={memberId}
-            className="border border-[#ece8e1] rounded-lg px-2.5 py-1.5 text-sm text-[#2c2925] bg-white focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
-          >
-            <option value="">Pick a member…</option>
-            {members.map((m) => (
-              <option key={m.id} value={m.id}>{m.name || m.email}</option>
-            ))}
-          </select>
-        </div>
+        <input type="hidden" name="member" value={memberId} />
         <div>
           <label className="block text-xs font-medium text-[#6b665f] mb-1">Day</label>
           <div className="flex items-center gap-1.5">
@@ -182,74 +171,77 @@ export default async function PlanPage({
         </button>
       </form>
 
-      {/* Roster status for the day — who's planned, who's still pending. Each
-          card links to that member's planning panel for the same day. */}
-      {roster.length > 0 && (
-        <div className="mb-6">
-          <div className="flex items-baseline justify-between mb-2">
-            <h2 className="text-sm font-semibold text-[#6b665f]">Team — {formatDate(targetDate)}</h2>
-            <span className="text-xs text-[#9c968d]">
-              {roster.filter((r) => r.status === "empty").length} not planned ·{" "}
-              {roster.filter((r) => r.status === "planned").length} planned ·{" "}
-              {roster.filter((r) => r.status === "submitted").length} submitted
-            </span>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-            {roster.map((m) => (
-              <a
-                key={m.id}
-                href={`/plan?member=${m.id}&date=${dateStr}`}
-                className={`block rounded-xl border p-3 transition-colors hover:border-primary ${
-                  m.id === memberId ? "border-primary bg-primary/5" : "border-[#ece8e1] bg-white"
-                }`}
-              >
-                <p className="text-sm font-medium text-[#2c2925] truncate">{m.name || m.email}</p>
-                <div className="flex items-center justify-between mt-1.5">
-                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${STATUS[m.status].cls}`}>
-                    {STATUS[m.status].label}
-                  </span>
+      {/* Split view: vertical roster on the left, the selected member's goal +
+          task panel on the right half. On mobile they stack. */}
+      <div className="grid grid-cols-1 lg:grid-cols-10 gap-6 items-start">
+        {/* Left — vertical member list (30%). Each row links to that member's panel. */}
+        {roster.length > 0 && (
+          <div className="lg:col-span-3">
+            <div className="flex items-baseline justify-between mb-2">
+              <h2 className="text-sm font-semibold text-[#6b665f]">Team — {formatDate(targetDate)}</h2>
+              <span className="text-xs text-[#9c968d]">
+                {roster.filter((r) => r.status === "empty").length} not planned ·{" "}
+                {roster.filter((r) => r.status === "planned").length} planned ·{" "}
+                {roster.filter((r) => r.status === "submitted").length} submitted
+              </span>
+            </div>
+            <div className="space-y-2">
+              {roster.map((m) => (
+                <a
+                  key={m.id}
+                  href={`/plan?member=${m.id}&date=${dateStr}`}
+                  className={`block rounded-xl border p-3 transition-colors hover:border-primary ${
+                    m.id === memberId ? "border-primary bg-primary/5" : "border-[#ece8e1] bg-white"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium text-[#2c2925] truncate">{m.name || m.email}</p>
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border shrink-0 ${STATUS[m.status].cls}`}>
+                      {STATUS[m.status].label}
+                    </span>
+                  </div>
                   {m.total > 0 && (
-                    <span className="text-xs text-[#9c968d]">{m.done}/{m.total} done</span>
-                  )}
-                </div>
-                {m.total > 0 && (
-                  <>
-                    {/* Progress = done/total tasks. */}
-                    <div className="mt-2 h-1.5 rounded-full bg-[#ece8e1] overflow-hidden">
-                      <div
-                        className="h-full bg-primary rounded-full"
-                        style={{ width: `${Math.round((m.done / m.total) * 100)}%` }}
-                      />
+                    <div className="flex items-center gap-3 mt-2">
+                      {/* Progress = done/total tasks. */}
+                      <div className="flex-1 h-1.5 rounded-full bg-[#ece8e1] overflow-hidden">
+                        <div
+                          className="h-full bg-primary rounded-full"
+                          style={{ width: `${Math.round((m.done / m.total) * 100)}%` }}
+                        />
+                      </div>
+                      <span className="text-xs text-[#9c968d] shrink-0">{m.done}/{m.total} done</span>
+                      <span className="text-[11px] text-[#9c968d] shrink-0">
+                        <span className="text-[#6b665f] font-medium">{fmtH(m.planned)}h</span>/
+                        <span className="text-[#6b665f] font-medium">{fmtH(m.actual)}h</span>
+                      </span>
                     </div>
-                    {/* Planned (estimate) vs actual hours logged. */}
-                    <p className="mt-1.5 text-[11px] text-[#9c968d]">
-                      <span className="text-[#6b665f] font-medium">{fmtH(m.planned)}h</span> planned ·{" "}
-                      <span className="text-[#6b665f] font-medium">{fmtH(m.actual)}h</span> actual
-                    </p>
-                  </>
-                )}
-              </a>
-            ))}
+                  )}
+                </a>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {!selected ? (
-        <div className="bg-white rounded-xl border border-[#ece8e1] p-8 text-center text-sm text-[#9c968d]">
-          {members.length === 0
-            ? "No members report to you yet. An admin sets who you manage under Admin → Users → Manager."
-            : "Pick a member and a day to start planning their work."}
+        {/* Right — planning panel (goal + tasks) for the selected member (70%). */}
+        <div className="lg:col-span-7 lg:sticky lg:top-4">
+          {!selected ? (
+            <div className="bg-white rounded-xl border border-[#ece8e1] p-8 text-center text-sm text-[#9c968d]">
+              {members.length === 0
+                ? "No members report to you yet. An admin sets who you manage under Admin → Users → Manager."
+                : "Pick a member from the list to set their goal and plan their day."}
+            </div>
+          ) : (
+            <PlanForMemberClient
+              member={selected}
+              date={dateStr}
+              dateLabel={formatDate(targetDate)}
+              initialGoal={plan?.goal ?? ""}
+              submitted={Boolean(plan?.submittedAt)}
+              initialTasks={JSON.parse(JSON.stringify(tasks))}
+            />
+          )}
         </div>
-      ) : (
-        <PlanForMemberClient
-          member={selected}
-          date={dateStr}
-          dateLabel={formatDate(targetDate)}
-          initialGoal={plan?.goal ?? ""}
-          submitted={Boolean(plan?.submittedAt)}
-          initialTasks={JSON.parse(JSON.stringify(tasks))}
-        />
-      )}
+      </div>
     </div>
   );
 }

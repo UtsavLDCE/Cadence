@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { PERMISSION_MATRIX, ROLE_META, type Access, type Role } from "@/lib/permissions";
 import { TagInput, useTags, type Tag } from "@/components/tag-input";
@@ -53,6 +54,8 @@ type Props = {
 
 export function AdminClient({ users, teams, settings, engagement, sprint }: Props) {
   const router = useRouter();
+  const { data: session } = useSession();
+  const meId = session?.user?.id;
   const { tags: tagVocab, createTag } = useTags();
   const [activeTab, setActiveTab] = useState<"users" | "engagement" | "sprint" | "roles" | "teams" | "settings">("users");
   const [newTeamName, setNewTeamName] = useState("");
@@ -64,6 +67,9 @@ export function AdminClient({ users, teams, settings, engagement, sprint }: Prop
   // New-user form
   const [nu, setNu] = useState({ name: "", email: "", password: "", role: "MEMBER", teamId: "", managerId: "" });
   const [creatingUser, setCreatingUser] = useState(false);
+
+  // User being edited in the details modal (name / email / password).
+  const [editing, setEditing] = useState<User | null>(null);
 
   // Team-manager dropdown still uses actual managers/admins.
   const managers = users.filter((u) => u.role === "MANAGER" || u.role === "ADMIN");
@@ -90,6 +96,22 @@ export function AdminClient({ users, teams, settings, engagement, sprint }: Prop
     });
     if (res.ok) { router.refresh(); }
     else { setMessage({ type: "error", text: "Failed to update tags." }); }
+  }
+
+  // Admin-only: hard-delete a user. Their tasks/plans/logs cascade; managed
+  // teams have managerId nulled. Server also blocks self-delete.
+  async function deleteUser(user: User) {
+    if (!confirm(`Delete ${user.name || user.email}? Their tasks, plans, and logs are removed too. This can't be undone.`)) return;
+    const res = await fetch("/api/users", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: user.id }),
+    });
+    if (res.ok) { setMessage({ type: "success", text: "User deleted." }); router.refresh(); }
+    else {
+      const d = await res.json().catch(() => ({}));
+      setMessage({ type: "error", text: d.error || "Failed to delete user." });
+    }
   }
 
   // Admin-only: hide/show a user in the Insights team view.
@@ -290,6 +312,7 @@ export function AdminClient({ users, teams, settings, engagement, sprint }: Prop
                 <th className="text-left px-4 py-3 font-medium text-gray-600" title="Hide this user from the Insights team view — admin only.">
                   Exclude from Insights
                 </th>
+                <th className="text-right px-4 py-3 font-medium text-gray-600">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -355,11 +378,38 @@ export function AdminClient({ users, teams, settings, engagement, sprint }: Prop
                       </span>
                     </label>
                   </td>
+                  <td className="px-4 py-3 text-right whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => setEditing(user)}
+                      className="text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:underline"
+                    >
+                      Edit
+                    </button>
+                    {user.id !== meId && (
+                      <button
+                        type="button"
+                        onClick={() => deleteUser(user)}
+                        className="ml-3 text-xs font-medium text-red-600 hover:text-red-700 hover:underline"
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
           </div>
+
+          {editing && (
+            <EditUserModal
+              user={editing}
+              onClose={() => setEditing(null)}
+              onSaved={() => { setEditing(null); setMessage({ type: "success", text: "User updated." }); router.refresh(); }}
+              onError={(text) => setMessage({ type: "error", text })}
+            />
+          )}
         </div>
       )}
 
@@ -714,6 +764,95 @@ function SprintTab({
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// Admin edits a user's identity + credentials. Name/email always sent; password
+// only when a new one is typed (blank = leave unchanged). Server validates.
+function EditUserModal({
+  user,
+  onClose,
+  onSaved,
+  onError,
+}: {
+  user: User;
+  onClose: () => void;
+  onSaved: () => void;
+  onError: (text: string) => void;
+}) {
+  const [name, setName] = useState(user.name ?? "");
+  const [email, setEmail] = useState(user.email ?? "");
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim() || !email.trim()) return;
+    if (password && password.length < 8) { onError("Password must be at least 8 characters"); return; }
+    setSaving(true);
+    const res = await fetch("/api/users", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId: user.id,
+        name: name.trim(),
+        email: email.trim(),
+        ...(password ? { password } : {}),
+      }),
+    });
+    setSaving(false);
+    if (res.ok) onSaved();
+    else { const d = await res.json().catch(() => ({})); onError(d.error || "Failed to update user."); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl border border-gray-200 p-5 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+        <h2 className="font-semibold text-gray-900 mb-4">Edit user</h2>
+        <form onSubmit={save} className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Full name</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Set new password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Leave blank to keep current"
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <button type="button" onClick={onClose} className="text-sm font-medium text-gray-600 hover:text-gray-800 px-4 py-2">
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving || !name.trim() || !email.trim()}
+              className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

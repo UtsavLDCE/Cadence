@@ -99,19 +99,43 @@ export async function PATCH(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { userId, role, teamId, managerId, excludedFromInsights, tagIds } = body as {
+  const { userId, role, teamId, managerId, excludedFromInsights, tagIds, name, email, password } = body as {
     userId: string;
     role?: "ADMIN" | "MANAGER" | "MEMBER";
     teamId?: string | null;
     managerId?: string | null;
     excludedFromInsights?: boolean;
     tagIds?: string[];
+    name?: string;
+    email?: string;
+    password?: string;
   };
 
   // A user can't report to themselves.
   if (managerId && managerId === userId) {
     return NextResponse.json({ error: "A user cannot be their own manager" }, { status: 400 });
   }
+
+  // Admin editing identity/credentials. Validate each only when present so
+  // unrelated PATCHes (role, tags…) skip these checks.
+  const nextName = name !== undefined ? name.trim() : undefined;
+  if (nextName !== undefined && !nextName) {
+    return NextResponse.json({ error: "Name can't be empty" }, { status: 400 });
+  }
+  const nextEmail = email !== undefined ? email.trim().toLowerCase() : undefined;
+  if (nextEmail !== undefined) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail)) {
+      return NextResponse.json({ error: "Enter a valid email address" }, { status: 400 });
+    }
+    const clash = await prisma.user.findUnique({ where: { email: nextEmail } });
+    if (clash && clash.id !== userId) {
+      return NextResponse.json({ error: "Email already registered" }, { status: 409 });
+    }
+  }
+  if (password !== undefined && password.length < 8) {
+    return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 });
+  }
+  const hashed = password !== undefined ? await bcrypt.hash(password, 12) : undefined;
 
   const tags = await resolveTagIds(prisma, tagIds);
   if (!tags.ok) return NextResponse.json({ error: "Unknown tag." }, { status: 400 });
@@ -122,6 +146,9 @@ export async function PATCH(req: NextRequest) {
       ...(role && { role }),
       ...(teamId !== undefined && { teamId }),
       ...(managerId !== undefined && { managerId }),
+      ...(nextName !== undefined && { name: nextName }),
+      ...(nextEmail !== undefined && { email: nextEmail }),
+      ...(hashed !== undefined && { password: hashed }),
       // Admin-only: hide/show a user in the Insights team view.
       ...(typeof excludedFromInsights === "boolean" && { excludedFromInsights }),
       // null ids => tagIds absent => leave tags untouched; array => replace set.
@@ -131,4 +158,31 @@ export async function PATCH(req: NextRequest) {
   });
 
   return NextResponse.json(updated);
+}
+
+// DELETE /api/users  { userId }  -> admin hard-deletes a user. Related tasks,
+// plans, work logs, standups, etc. cascade; teams they manage have managerId
+// set null. An admin can't delete their own account.
+export async function DELETE(req: NextRequest) {
+  const session = await auth();
+  if (!session || session.user.role !== "ADMIN") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const body = await req.json();
+  const userId = typeof body.userId === "string" ? body.userId : "";
+  if (!userId) {
+    return NextResponse.json({ error: "userId is required" }, { status: 400 });
+  }
+  if (userId === session.user.id) {
+    return NextResponse.json({ error: "You can't delete your own account" }, { status: 400 });
+  }
+
+  const existing = await prisma.user.findUnique({ where: { id: userId } });
+  if (!existing) {
+    return NextResponse.json({ error: "User not found" }, { status: 404 });
+  }
+
+  await prisma.user.delete({ where: { id: userId } });
+  return NextResponse.json({ ok: true });
 }
