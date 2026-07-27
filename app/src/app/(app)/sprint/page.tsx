@@ -10,6 +10,7 @@ import { AddToToday } from "./add-button";
 export default async function SprintPage() {
   const session = await auth();
   const userId = session!.user.id;
+  const isManager = session!.user.role === "MANAGER" || session!.user.role === "ADMIN";
 
   const settings = await prisma.appSettings.findUnique({ where: { id: "singleton" } });
   const version = settings?.currentSprintVersion ?? null;
@@ -21,9 +22,46 @@ export default async function SprintPage() {
       })
     : [];
 
+  // A manager reviews their reports' work: any sprint item in "In Review" that
+  // belongs to one of their direct reports is pending THEIR review. Pulled from
+  // the reports' items (not the manager's own), shown with the assignee's name.
+  // ponytail: direct-report scope (user.managerId == me); widen to org-wide if
+  // an admin needs to review everyone's In Review, not just their reports'.
+  const reviewQueue = isManager && version
+    ? await prisma.sprintItem.findMany({
+        where: { version, state: "In Review", user: { managerId: userId } },
+        orderBy: [{ priority: "asc" }, { externalId: "asc" }],
+        include: { user: { select: { name: true, email: true } } },
+      })
+    : [];
+
+  const today = todayDate();
+
+  // Which sprint items are on TODAY's plan already, mapped externalId -> task id
+  // so the row can offer Remove (delete that task) as well as Add. Each add stamps
+  // the task notes "Sprint #<externalId>" (see add-button). Scoped to today so the
+  // control stays in sync with My Day / today's goal — adding/removing here is the
+  // same task shown there.
+  // ponytail: string marker reuses the existing notes convention; add a real
+  // FK column if sprint->task linkage ever needs to be queryable both ways.
+  const addedTasks = await prisma.dailyTask.findMany({
+    where: { userId, date: today, notes: { startsWith: "Sprint #" } },
+    select: { id: true, notes: true },
+  });
+  const addedTaskByExternalId = new Map<string, string>();
+  for (const t of addedTasks) {
+    const ext = t.notes!.slice("Sprint #".length).trim();
+    if (ext) addedTaskByExternalId.set(ext, t.id);
+  }
+
+  // Once today's plan is submitted, the day is locked — no add/remove from here.
+  const todayPlan = await prisma.dayPlan.findUnique({
+    where: { userId_date: { userId, date: today } },
+  });
+  const submitted = Boolean(todayPlan?.submittedAt);
+
   // Actionable = due on/before today, or work already underway. These are the
   // ones a member should be pulling into today.
-  const today = todayDate();
   const urgency = (it: (typeof rawItems)[number]): "overdue" | "today" | "started" | null => {
     if (it.dueDate) {
       const due = it.dueDate.getTime();
@@ -70,10 +108,54 @@ export default async function SprintPage() {
 
       {!version ? (
         <p className="text-sm text-gray-400 text-center py-10">No sprint has been imported yet.</p>
-      ) : rawItems.length === 0 ? (
+      ) : rawItems.length === 0 && reviewQueue.length === 0 ? (
         <p className="text-sm text-gray-400 text-center py-10">No sprint items are assigned to you this sprint.</p>
       ) : (
        <>
+        {reviewQueue.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-sm font-semibold text-gray-500 mb-2">Pending In Review ({reviewQueue.length})</h2>
+          <p className="text-xs text-gray-400 mb-2">Your reports&apos; items awaiting your review.</p>
+          <div className="bg-white rounded-xl border border-amber-200 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-amber-50 border-b border-amber-200">
+                <tr>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Item</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Assignee</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Type</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">State</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Due</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">Add</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {reviewQueue.map((it) => (
+                  <tr key={it.id}>
+                    <td className="px-4 py-3">
+                      <span className="text-gray-400">#{it.externalId}</span> {it.title}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{it.user?.name || it.user?.email || "—"}</td>
+                    <td className="px-4 py-3 text-gray-600">{it.workItemType || "—"}</td>
+                    <td className="px-4 py-3 text-gray-600">{it.state || "—"}</td>
+                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{fmt(it.dueDate)}</td>
+                    <td className="px-4 py-3 text-right">
+                      <AddToToday
+                        title={it.title}
+                        estimatedHours={parseEstimateHours(it.estimate) ?? 1}
+                        externalId={it.externalId}
+                        prReview
+                        taskId={addedTaskByExternalId.get(it.externalId) ?? null}
+                        submitted={submitted}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        )}
+
         {items.length > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <table className="w-full text-sm">
@@ -117,13 +199,14 @@ export default async function SprintPage() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    {u && (
-                      <AddToToday
-                        title={it.title}
-                        estimatedHours={parseEstimateHours(it.estimate) ?? 1}
-                        externalId={it.externalId}
-                      />
-                    )}
+                    <AddToToday
+                      title={it.title}
+                      estimatedHours={parseEstimateHours(it.estimate) ?? 1}
+                      externalId={it.externalId}
+                      taskId={addedTaskByExternalId.get(it.externalId) ?? null}
+                      submitted={submitted}
+                      canAdd={!!u}
+                    />
                   </td>
                 </tr>
                 );

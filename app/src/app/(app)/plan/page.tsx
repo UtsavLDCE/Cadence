@@ -39,18 +39,71 @@ export default async function PlanPage({
       : todayDate();
   const dateStr = targetDate.toISOString().slice(0, 10);
 
-  // Admin plans for anyone; a manager plans for the people who report to them.
-  // Only MEMBER-role users, matching the /api/manager/tasks target rule.
+  // Admin plans for anyone; a manager plans for their whole reporting line
+  // (User.managerId == me), same scope as Daily Feed / Insights. No role gate —
+  // a report who is themselves a MANAGER must still show.
+  // ponytail: adding a task to a non-MEMBER 400s at /api/manager/tasks (Task List
+  // shows MEMBER tasks only); goal-setting works for anyone. Widen that gate if
+  // leads need to assign work up the line.
   const members = await prisma.user.findMany({
     where:
       session!.user.role === "ADMIN"
-        ? { role: "MEMBER" }
-        : { role: "MEMBER", managerId: session!.user.id },
+        ? { id: { not: session!.user.id } }
+        : { managerId: session!.user.id },
     select: { id: true, name: true, email: true },
     orderBy: [{ name: "asc" }],
   });
 
   const selected = memberId ? members.find((m) => m.id === memberId) ?? null : null;
+
+  // Roster status for the chosen day: for every member the lead can plan for,
+  // where does their day stand — not planned, planned (open), or submitted, and
+  // how many of their tasks are done. Gives the lead at-a-glance visibility of
+  // who still needs attention. Two batched reads (plans + task counts), joined
+  // in memory keyed by userId.
+  const memberIds = members.map((m) => m.id);
+  const [dayPlans, taskGroups] = memberIds.length
+    ? await Promise.all([
+        prisma.dayPlan.findMany({
+          where: { userId: { in: memberIds }, date: targetDate },
+          select: { userId: true, submittedAt: true, goal: true },
+        }),
+        prisma.dailyTask.groupBy({
+          by: ["userId", "status"],
+          where: { userId: { in: memberIds }, date: targetDate },
+          _count: { _all: true },
+          _sum: { estimatedHours: true, actualHours: true },
+        }),
+      ])
+    : [[], []];
+
+  const planByUser = new Map(dayPlans.map((p) => [p.userId, p]));
+  const counts = new Map<string, { total: number; done: number; planned: number; actual: number }>();
+  for (const g of taskGroups) {
+    const c = counts.get(g.userId) ?? { total: 0, done: 0, planned: 0, actual: 0 };
+    c.total += g._count._all;
+    if (g.status === "DONE") c.done += g._count._all;
+    c.planned += g._sum.estimatedHours ?? 0;
+    c.actual += g._sum.actualHours ?? 0;
+    counts.set(g.userId, c);
+  }
+  const roster = members.map((m) => {
+    const p = planByUser.get(m.id);
+    const c = counts.get(m.id) ?? { total: 0, done: 0, planned: 0, actual: 0 };
+    const status: "submitted" | "planned" | "empty" = p?.submittedAt
+      ? "submitted"
+      : c.total > 0 || (p?.goal && p.goal.trim())
+        ? "planned"
+        : "empty";
+    return { ...m, status, total: c.total, done: c.done, planned: c.planned, actual: c.actual };
+  });
+  const STATUS = {
+    submitted: { label: "Submitted", cls: "bg-green-50 text-green-700 border-green-200" },
+    planned: { label: "Planned", cls: "bg-amber-50 text-amber-700 border-amber-200" },
+    empty: { label: "Not planned", cls: "bg-gray-50 text-gray-500 border-gray-200" },
+  } as const;
+  // Trim trailing .0 so "3h" not "3.0h" but "3.5h" stays.
+  const fmtH = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 
   // Load the selected member's plan goal + tasks for the chosen day.
   const [plan, tasks] = selected
@@ -128,6 +181,58 @@ export default async function PlanPage({
           Open
         </button>
       </form>
+
+      {/* Roster status for the day — who's planned, who's still pending. Each
+          card links to that member's planning panel for the same day. */}
+      {roster.length > 0 && (
+        <div className="mb-6">
+          <div className="flex items-baseline justify-between mb-2">
+            <h2 className="text-sm font-semibold text-[#6b665f]">Team — {formatDate(targetDate)}</h2>
+            <span className="text-xs text-[#9c968d]">
+              {roster.filter((r) => r.status === "empty").length} not planned ·{" "}
+              {roster.filter((r) => r.status === "planned").length} planned ·{" "}
+              {roster.filter((r) => r.status === "submitted").length} submitted
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+            {roster.map((m) => (
+              <a
+                key={m.id}
+                href={`/plan?member=${m.id}&date=${dateStr}`}
+                className={`block rounded-xl border p-3 transition-colors hover:border-primary ${
+                  m.id === memberId ? "border-primary bg-primary/5" : "border-[#ece8e1] bg-white"
+                }`}
+              >
+                <p className="text-sm font-medium text-[#2c2925] truncate">{m.name || m.email}</p>
+                <div className="flex items-center justify-between mt-1.5">
+                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${STATUS[m.status].cls}`}>
+                    {STATUS[m.status].label}
+                  </span>
+                  {m.total > 0 && (
+                    <span className="text-xs text-[#9c968d]">{m.done}/{m.total} done</span>
+                  )}
+                </div>
+                {m.total > 0 && (
+                  <>
+                    {/* Progress = done/total tasks. */}
+                    <div className="mt-2 h-1.5 rounded-full bg-[#ece8e1] overflow-hidden">
+                      <div
+                        className="h-full bg-primary rounded-full"
+                        style={{ width: `${Math.round((m.done / m.total) * 100)}%` }}
+                      />
+                    </div>
+                    {/* Planned (estimate) vs actual hours logged. */}
+                    <p className="mt-1.5 text-[11px] text-[#9c968d]">
+                      <span className="text-[#6b665f] font-medium">{fmtH(m.planned)}h</span> planned ·{" "}
+                      <span className="text-[#6b665f] font-medium">{fmtH(m.actual)}h</span> actual
+                    </p>
+                  </>
+                )}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
 
       {!selected ? (
         <div className="bg-white rounded-xl border border-[#ece8e1] p-8 text-center text-sm text-[#9c968d]">
