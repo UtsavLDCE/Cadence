@@ -3,9 +3,9 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { fmtHours, DEFERRAL_CAUSE_META, WORKDAY_HOURS } from "@/lib/task-status";
-import { WIP_THRESHOLD, MIN_PLAN_LOAD_PCT, type MemberInsights, type TeamInsights, type CategorySlice, type Trends } from "@/lib/insights";
+import { WIP_THRESHOLD, MIN_PLAN_LOAD_PCT, type MemberInsights, type TeamInsights, type CategorySlice, type CategoryCycle, type Trends } from "@/lib/insights";
 import type { RangeKey } from "@/lib/insights-range";
-import { TONE, Stat, BlockedList, CategoryBreakdown, CategoryByPerson, buildCategoryColors } from "./insights-ui";
+import { TONE, Stat, BlockedList, CategoryBreakdown, CategoryByPerson, CategoryMatrix, CategoryCycleMatrix, buildCategoryColors } from "./insights-ui";
 import { TimelineSelector } from "./timeline-selector";
 import { ScopeToggle, type Scope } from "@/components/scope-toggle";
 
@@ -16,6 +16,8 @@ export function InsightsClient({
   members,
   categories,
   membersCategories,
+  categoryCycles,
+  membersCategoryCycles,
   trends,
   rangeLabel,
   rangeKey,
@@ -27,6 +29,8 @@ export function InsightsClient({
   members: MemberInsights[];
   categories: CategorySlice[];
   membersCategories: { id: string; name: string; categories: CategorySlice[] }[];
+  categoryCycles: CategoryCycle[];
+  membersCategoryCycles: { id: string; name: string; categories: CategoryCycle[] }[];
   trends: Trends;
   rangeLabel: string;
   rangeKey: RangeKey;
@@ -159,6 +163,12 @@ export function InsightsClient({
         <div className="flex-1 min-w-0">
           {/* Where time goes — team-wide effort split by category. */}
           <CategoryBreakdown categories={categories} />
+
+          {/* Category hours per member (TTL per category, member-wise). */}
+          <CategoryMatrix categories={categories} members={membersCategories} colorOf={colorOf} />
+
+          {/* Avg resolution time per category, member-wise. */}
+          <CategoryCycleMatrix categories={categoryCycles} members={membersCategoryCycles} colorOf={colorOf} />
 
           {/* Per-member breakdown */}
           <div className="bg-white rounded-[16px] border border-[#ece8e1] p-[22px]">

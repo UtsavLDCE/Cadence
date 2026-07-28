@@ -16,16 +16,26 @@ export default async function TasksPage() {
 
   const today = todayDate();
 
+  // A manager sees only their reporting line: themselves + direct reports
+  // (User.managerId == me), same scope as Daily Feed / Insights. Admin and CXO
+  // see the whole org.
+  const userScope =
+    role === "MANAGER"
+      ? { OR: [{ id: session!.user.id }, { managerId: session!.user.id }] }
+      : {};
+
   const [members, allTasks] = await Promise.all([
-    // Everyone who can own a task — members, managers, and admins alike — so
-    // their rows resolve to a real name and they appear in the owner filter.
+    // Everyone in scope who can own a task, so their rows resolve to a real name
+    // and they appear in the owner filter.
     prisma.user.findMany({
+      where: userScope,
       select: { id: true, name: true, email: true },
       orderBy: [{ name: "asc" }],
     }),
-    // Every task on the team, all owners, all statuses, all days. Deferred
+    // Every task for in-scope owners, all statuses, all days. Deferred
     // originals are kept so the full record is visible.
     prisma.dailyTask.findMany({
+      where: { user: userScope },
       select: {
         id: true, seq: true, userId: true, title: true, notes: true, status: true, priority: true,
         estimatedHours: true, actualHours: true, date: true, completedAt: true,

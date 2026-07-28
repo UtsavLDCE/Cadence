@@ -5,6 +5,7 @@ import {
   buildMemberInsights,
   buildTeamInsights,
   categoryBreakdown,
+  categoryCycleBreakdown,
   computeTrends,
   type InsightTaskRow,
   type InsightEventRow,
@@ -183,7 +184,7 @@ export default async function InsightsPage({
       submittedPlans,
       workingDays,
     });
-    const categories = categoryBreakdown(rows, categoryNames);
+    const categories = categoryBreakdown(rows, categoryNames, true);
     const trends = computeTrends(rows, windowStartISO, range.days, bucketDays);
 
     return (
@@ -256,13 +257,24 @@ export default async function InsightsPage({
   );
 
   const team = buildTeamInsights(memberInsights, allRows, allEvents, range.days);
-  const categorySlices = categoryBreakdown(allRows, categoryNames);
+  const categorySlices = categoryBreakdown(allRows, categoryNames, true);
   // Per-person category split — same "where time goes" question, scoped to each
   // member so a manager sees who spends their time on what.
   const membersCategories = members.map((m) => ({
     id: m.id,
     name: m.name ?? m.email ?? "—",
-    categories: categoryBreakdown(allRows.filter((r) => r.userId === m.id), categoryNames),
+    categories: categoryBreakdown(allRows.filter((r) => r.userId === m.id), categoryNames, true),
+  }));
+  // Avg resolution time per category — team, and per member (who resolves each fastest).
+  const categoryCycles = categoryCycleBreakdown(allRows, allEvents, categoryNames);
+  const membersCategoryCycles = members.map((m) => ({
+    id: m.id,
+    name: m.name ?? m.email ?? "—",
+    categories: categoryCycleBreakdown(
+      allRows.filter((r) => r.userId === m.id),
+      allEvents.filter((e) => e.userId === m.id),
+      categoryNames,
+    ),
   }));
   const teamTrends = computeTrends(allRows, windowStartISO, range.days, bucketDays);
 
@@ -272,6 +284,8 @@ export default async function InsightsPage({
       members={memberInsights}
       categories={categorySlices}
       membersCategories={membersCategories}
+      categoryCycles={categoryCycles}
+      membersCategoryCycles={membersCategoryCycles}
       trends={teamTrends}
       rangeLabel={range.label}
       rangeKey={range.key}

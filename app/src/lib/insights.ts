@@ -363,6 +363,59 @@ export function flowMetrics(events: InsightEventRow[]): FlowMetrics {
   };
 }
 
+// --- Avg resolution time per category ---------------------------------------
+// Same cycle definition as flowMetrics (first IN_PROGRESS -> next DONE), but
+// bucketed by the task's category so you can see "PR reviews take avg 3.2h,
+// bug fixes 6.1h" — and, per member, who resolves each category fastest.
+export type CategoryCycle = { id: string | null; name: string; avgCycleHours: number | null; sampleSize: number };
+
+export function categoryCycleBreakdown(
+  tasks: Pick<InsightTaskRow, "id" | "categoryId">[],
+  events: InsightEventRow[],
+  names: Map<string, string>,
+): CategoryCycle[] {
+  const catOf = new Map<string, string | null>();
+  for (const t of tasks) catOf.set(t.id, t.categoryId ?? null);
+
+  const sum = new Map<string | null, number>();
+  const count = new Map<string | null, number>();
+
+  const byTask = new Map<string, InsightEventRow[]>();
+  for (const e of events) {
+    const arr = byTask.get(e.taskId) ?? [];
+    arr.push(e);
+    byTask.set(e.taskId, arr);
+  }
+
+  for (const [taskId, evs] of byTask) {
+    if (!catOf.has(taskId)) continue; // event for a task outside this scope
+    const key = catOf.get(taskId) ?? null;
+    const sorted = [...evs].sort((a, b) => a.at.localeCompare(b.at));
+    let firstInProgress: number | null = null;
+    for (const e of sorted) {
+      const t = new Date(e.at).getTime();
+      if (e.to === "IN_PROGRESS" && firstInProgress === null) firstInProgress = t;
+      if (e.to === "DONE" && firstInProgress !== null) {
+        sum.set(key, (sum.get(key) ?? 0) + (t - firstInProgress));
+        count.set(key, (count.get(key) ?? 0) + 1);
+        firstInProgress = null; // reset so a reopen->redo measures a fresh cycle
+      }
+    }
+  }
+
+  return [...sum.keys()]
+    .map((id) => {
+      const c = count.get(id) ?? 0;
+      return {
+        id,
+        name: id ? (names.get(id) ?? "Unknown") : "Uncategorized",
+        avgCycleHours: c ? Math.round((sum.get(id)! / c / HOURS) * 10) / 10 : null,
+        sampleSize: c,
+      };
+    })
+    .sort((a, b) => (b.avgCycleHours ?? 0) - (a.avgCycleHours ?? 0));
+}
+
 // --- Blocked dependencies (cross-team leak) ---------------------------------
 // The single leak a task tracker usually can't see: work stalled waiting on
 // someone else. Every HOLD transition can name who/which team it's waiting on;
@@ -403,28 +456,36 @@ export function blockedDependencies(events: InsightEventRow[]): BlockedDependenc
 // go": it makes the meetings / cross-team / interruption load that a raw task
 // count hides visible and comparable. Effort uses actualHours, falling back to
 // estimate so freshly-logged work still counts. Deferred originals are excluded.
-export type CategorySlice = { id: string | null; name: string; hours: number; pct: number };
+export type CategorySlice = { id: string | null; name: string; hours: number; pct: number; count: number; avg: number };
 
 export function categoryBreakdown(
   tasks: Pick<InsightTaskRow, "deferredToDate" | "actualHours" | "estimatedHours" | "categoryId">[],
   names: Map<string, string>,
+  actualOnly = false, // true => count logged actualHours only (no estimate fallback)
 ): CategorySlice[] {
   const byCat = new Map<string | null, number>();
+  const cntCat = new Map<string | null, number>();
   for (const t of tasks) {
     if (t.deferredToDate) continue;
-    const h = t.actualHours ?? t.estimatedHours ?? 0;
+    const h = actualOnly ? (t.actualHours ?? 0) : (t.actualHours ?? t.estimatedHours ?? 0);
     if (h <= 0) continue;
     const key = t.categoryId ?? null;
     byCat.set(key, (byCat.get(key) ?? 0) + h);
+    cntCat.set(key, (cntCat.get(key) ?? 0) + 1);
   }
   const total = [...byCat.values()].reduce((s, h) => s + h, 0);
   return [...byCat.entries()]
-    .map(([id, hours]) => ({
-      id,
-      name: id ? (names.get(id) ?? "Unknown") : "Uncategorized",
-      hours: Math.round(hours * 10) / 10,
-      pct: total > 0 ? Math.round((hours / total) * 100) : 0,
-    }))
+    .map(([id, hours]) => {
+      const count = cntCat.get(id) ?? 0;
+      return {
+        id,
+        name: id ? (names.get(id) ?? "Unknown") : "Uncategorized",
+        hours: Math.round(hours * 10) / 10,
+        pct: total > 0 ? Math.round((hours / total) * 100) : 0,
+        count,
+        avg: count ? Math.round((hours / count) * 10) / 10 : 0,
+      };
+    })
     .sort((a, b) => b.hours - a.hours);
 }
 

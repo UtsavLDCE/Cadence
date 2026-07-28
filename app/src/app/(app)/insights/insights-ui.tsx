@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { fmtHours, type PlanningTone } from "@/lib/task-status";
-import type { BlockedDependency, CategorySlice, TrendPoint } from "@/lib/insights";
+import type { BlockedDependency, CategoryCycle, CategorySlice, TrendPoint } from "@/lib/insights";
 
 // Rotating palette for the category bars — matches the design mockup so a
 // category reads distinct without competing with the coral leak accents.
@@ -248,6 +248,193 @@ function PersonDrawer({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Category × member matrix: total effort per category (the "TTL" row) broken out
+// per person. Rows are members, columns are the reference categories (team order,
+// so colours match every other chart), a per-member Total column, and a footer
+// row with each category's team-wide total. Answers "how many hours went to each
+// category, and who spent them" as plain numbers, not bars.
+// ponytail: category columns are bounded (~9 palette slots); at ~50 members the
+// table scrolls vertically like the By-person table. Transpose if categories ever
+// outgrow members.
+export function CategoryMatrix({
+  categories,
+  members,
+  colorOf,
+}: {
+  categories: CategorySlice[];
+  members: { id: string; name: string; categories: CategorySlice[] }[];
+  colorOf: (id: string | null) => string;
+}) {
+  // Column order = team category order (already sorted by hours). Key null as
+  // "none" so Uncategorized is a stable column.
+  const cols = categories.map((c) => ({ key: c.id ?? "none", id: c.id, name: c.name }));
+  const withData = members.filter((m) => m.categories.length > 0);
+
+  // Cells show AVERAGE hours per task in that category, not the summed total.
+  const sliceOf = (m: { categories: CategorySlice[] }, key: string) =>
+    m.categories.find((c) => (c.id ?? "none") === key);
+  // Member's overall avg = their total hours / their total task count.
+  const memberAvg = (m: { categories: CategorySlice[] }) => {
+    const h = m.categories.reduce((s, c) => s + c.hours, 0);
+    const n = m.categories.reduce((s, c) => s + c.count, 0);
+    return n ? Math.round((h / n) * 10) / 10 : 0;
+  };
+  // Footer = team-wide avg per category, straight off the team-level slices.
+  const colAvg = (id: string | null) => categories.find((c) => c.id === id)?.avg ?? 0;
+  const grandAvg = (() => {
+    const h = categories.reduce((s, c) => s + c.hours, 0);
+    const n = categories.reduce((s, c) => s + c.count, 0);
+    return n ? Math.round((h / n) * 10) / 10 : 0;
+  })();
+
+  return (
+    <div className="bg-white rounded-[16px] border border-[#ece8e1] p-[22px] mb-[22px]">
+      <div className="flex items-baseline justify-between gap-4 flex-wrap mb-4">
+        <h2 className="text-sm font-semibold text-[#1c1a17]">Avg time per task · by person</h2>
+        <p className="text-xs text-[#b0a99e]">mean hours per categorized task · team avg <span className="mono">{fmtHours(grandAvg)}</span></p>
+      </div>
+
+      {cols.length === 0 || withData.length === 0 ? (
+        <p className="text-sm text-[#b0a99e] py-2">
+          No categorized effort yet. Tag tasks (meetings, client calls, cross-team, R&D…) to see the split.
+        </p>
+      ) : (
+        <div className="overflow-auto max-h-[70vh] rounded-[10px] border border-[#f2eee7]">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 z-10 bg-white">
+              <tr className="text-[10px] tracking-[0.08em] uppercase text-[#b0a99e] border-b border-[#ece8e1]">
+                <th className="py-2.5 pl-4 pr-4 font-medium bg-white text-left">Member</th>
+                {cols.map((c) => (
+                  <th key={c.key} className="py-2.5 px-3 font-medium bg-white text-right whitespace-nowrap">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-sm shrink-0" style={{ backgroundColor: colorOf(c.id) }} />
+                      {c.name}
+                    </span>
+                  </th>
+                ))}
+                <th className="py-2.5 px-3 pr-4 font-semibold bg-white text-right">Avg</th>
+              </tr>
+            </thead>
+            <tbody>
+              {withData.map((m) => (
+                <tr key={m.id} className="border-b border-[#f2eee7]">
+                  <td className="py-2.5 pl-4 pr-4 text-[#1c1a17] font-medium truncate max-w-[180px]">{m.name}</td>
+                  {cols.map((c) => {
+                    const s = sliceOf(m, c.key);
+                    const a = s?.avg ?? 0;
+                    return (
+                      <td key={c.key} title={s ? `${s.count} task${s.count === 1 ? "" : "s"}` : undefined} className={cn("py-2.5 px-3 text-right mono", a > 0 ? "text-[#1c1a17]" : "text-[#d8d3ca]")}>
+                        {a > 0 ? fmtHours(a) : "·"}
+                      </td>
+                    );
+                  })}
+                  <td className="py-2.5 px-3 pr-4 text-right mono font-semibold text-[#1c1a17]">{fmtHours(memberAvg(m))}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot className="sticky bottom-0 bg-[#faf8f4]">
+              <tr className="border-t border-[#ece8e1] text-[13px]">
+                <td className="py-2.5 pl-4 pr-4 font-semibold text-[#6b665f]">Team avg</td>
+                {cols.map((c) => (
+                  <td key={c.key} className="py-2.5 px-3 text-right mono font-semibold text-[#1c1a17]">{fmtHours(colAvg(c.id))}</td>
+                ))}
+                <td className="py-2.5 px-3 pr-4 text-right mono font-semibold text-[#1c1a17]">{fmtHours(grandAvg)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Avg resolution time per category, per person. Same layout as CategoryMatrix
+// but cells are average cycle hours (first IN_PROGRESS -> DONE) not summed
+// effort. Footer row = team-wide avg per category. Answers "who resolves PR
+// reviews / bug fixes fastest, and how long each category takes".
+export function CategoryCycleMatrix({
+  categories,
+  members,
+  colorOf,
+}: {
+  categories: CategoryCycle[];
+  members: { id: string; name: string; categories: CategoryCycle[] }[];
+  colorOf: (id: string | null) => string;
+}) {
+  const cols = categories.map((c) => ({ key: c.id ?? "none", id: c.id, name: c.name }));
+  const withData = members.filter((m) => m.categories.some((c) => c.sampleSize > 0));
+
+  const cellOf = (m: { categories: CategoryCycle[] }, key: string) =>
+    m.categories.find((c) => (c.id ?? "none") === key) ?? null;
+  const teamOf = (key: string) => categories.find((c) => (c.id ?? "none") === key) ?? null;
+
+  return (
+    <div className="bg-white rounded-[16px] border border-[#ece8e1] p-[22px] mb-[22px]">
+      <div className="flex items-baseline justify-between gap-4 flex-wrap mb-4">
+        <h2 className="text-sm font-semibold text-[#1c1a17]">Avg resolution time · by person</h2>
+        <p className="text-xs text-[#b0a99e]">avg hours from start to done, per category</p>
+      </div>
+
+      {cols.length === 0 || withData.length === 0 ? (
+        <p className="text-sm text-[#b0a99e] py-2">
+          No completed cycles yet. Resolution time needs tasks that moved In&nbsp;Progress → Done in this window.
+        </p>
+      ) : (
+        <div className="overflow-auto max-h-[70vh] rounded-[10px] border border-[#f2eee7]">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 z-10 bg-white">
+              <tr className="text-[10px] tracking-[0.08em] uppercase text-[#b0a99e] border-b border-[#ece8e1]">
+                <th className="py-2.5 pl-4 pr-4 font-medium bg-white text-left">Member</th>
+                {cols.map((c) => (
+                  <th key={c.key} className="py-2.5 px-3 font-medium bg-white text-right whitespace-nowrap">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-sm shrink-0" style={{ backgroundColor: colorOf(c.id) }} />
+                      {c.name}
+                    </span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {withData.map((m) => (
+                <tr key={m.id} className="border-b border-[#f2eee7]">
+                  <td className="py-2.5 pl-4 pr-4 text-[#1c1a17] font-medium truncate max-w-[180px]">{m.name}</td>
+                  {cols.map((c) => {
+                    const cell = cellOf(m, c.key);
+                    const v = cell && cell.sampleSize > 0 ? cell.avgCycleHours : null;
+                    return (
+                      <td
+                        key={c.key}
+                        title={cell && cell.sampleSize > 0 ? `${cell.sampleSize} task${cell.sampleSize === 1 ? "" : "s"}` : undefined}
+                        className={cn("py-2.5 px-3 text-right mono", v != null ? "text-[#1c1a17]" : "text-[#d8d3ca]")}
+                      >
+                        {v != null ? fmtHours(v) : "·"}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+            <tfoot className="sticky bottom-0 bg-[#faf8f4]">
+              <tr className="border-t border-[#ece8e1] text-[13px]">
+                <td className="py-2.5 pl-4 pr-4 font-semibold text-[#6b665f]">Team avg</td>
+                {cols.map((c) => {
+                  const t = teamOf(c.key);
+                  return (
+                    <td key={c.key} className="py-2.5 px-3 text-right mono font-semibold text-[#1c1a17]">
+                      {t && t.avgCycleHours != null ? fmtHours(t.avgCycleHours) : "·"}
+                    </td>
+                  );
+                })}
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
