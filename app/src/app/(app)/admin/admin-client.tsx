@@ -11,7 +11,7 @@ type User = {
   id: string;
   name: string | null;
   email: string | null;
-  role: "ADMIN" | "MANAGER" | "MEMBER";
+  role: "ADMIN" | "MANAGER" | "MEMBER" | "CXO";
   teamId: string | null;
   managerId: string | null;
   excludedFromInsights: boolean;
@@ -266,6 +266,7 @@ export function AdminClient({ users, teams, settings, engagement, sprint }: Prop
                   <option value="MEMBER">Member</option>
                   <option value="MANAGER">Manager</option>
                   <option value="ADMIN">Admin</option>
+                  <option value="CXO">CXO</option>
                 </select>
                 <select
                   value={nu.teamId}
@@ -331,6 +332,7 @@ export function AdminClient({ users, teams, settings, engagement, sprint }: Prop
                       <option value="MEMBER">Member</option>
                       <option value="MANAGER">Manager</option>
                       <option value="ADMIN">Admin</option>
+                      <option value="CXO">CXO</option>
                     </select>
                   </td>
                   <td className="px-4 py-3">

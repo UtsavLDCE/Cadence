@@ -30,7 +30,7 @@ type User = {
   name?: string | null;
   email?: string | null;
   image?: string | null;
-  role: "ADMIN" | "MANAGER" | "MEMBER";
+  role: "ADMIN" | "MANAGER" | "MEMBER" | "CXO";
 };
 
 export function NavBar({ user, hasSprint }: { user: User; hasSprint: boolean }) {
@@ -39,13 +39,16 @@ export function NavBar({ user, hasSprint }: { user: User; hasSprint: boolean }) 
 
   const links = [
     { href: "/standup", label: "My Day", roles: ["ADMIN", "MANAGER", "MEMBER"], show: true },
-    { href: "/feed", label: "Daily Feed", roles: ["ADMIN", "MANAGER", "MEMBER"], show: true },
-    { href: "/sprint", label: "My Sprint", roles: ["ADMIN", "MANAGER", "MEMBER"], show: hasSprint },
-    { href: "/plan", label: "Plan Day", roles: ["ADMIN", "MANAGER"], show: true },
-    { href: "/insights", label: "Insights", roles: ["ADMIN", "MANAGER"], show: true },
+    // CXO is a read-only exec observer: sees team Feed / Insights / Task List,
+    // but no personal-work screens (My Day, My Sprint) and no Plan/Admin.
+    { href: "/feed", label: "Daily Feed", roles: ["ADMIN", "MANAGER", "MEMBER", "CXO"], show: true },
+    // Managers/admins always see Sprint (they upload the CSV); members only once one exists.
+    { href: "/sprint", label: "My Sprint", roles: ["ADMIN", "MANAGER", "MEMBER"], show: hasSprint || user.role === "ADMIN" || user.role === "MANAGER" },
+    { href: "/plan", label: "Plan Day", roles: ["ADMIN", "MANAGER", "CXO"], show: true },
+    { href: "/insights", label: "Insights", roles: ["ADMIN", "MANAGER", "CXO"], show: true },
     // ponytail: Team hidden for now — flip show:true to restore.
     { href: "/dashboard", label: "Team", roles: ["ADMIN", "MANAGER"], show: false },
-    { href: "/tasks", label: "Task List", roles: ["ADMIN", "MANAGER"], show: true },
+    { href: "/tasks", label: "Task List", roles: ["ADMIN", "MANAGER", "CXO"], show: true },
   ].filter((l) => l.show && l.roles.includes(user.role));
 
   const initial = (user.name || user.email || "?")[0].toUpperCase();

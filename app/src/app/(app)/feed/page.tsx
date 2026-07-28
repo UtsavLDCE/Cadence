@@ -37,11 +37,14 @@ export default async function FeedPage({
   const dateStr = targetDate.toISOString().slice(0, 10);
   const todayStr = todayDate().toISOString().slice(0, 10);
 
-  // A manager sees only themselves + their direct reports. Admin sees the whole org.
-  const userScope =
-    session!.user.role === "ADMIN"
-      ? {}
-      : { OR: [{ id: session!.user.id }, { managerId: session!.user.id }] };
+  // A manager sees only themselves + their direct reports. Admin — and CXO, an
+  // org-wide exec observer — see the whole org. CXO users are themselves excluded
+  // as subjects (never listed in the feed), regardless of who's viewing.
+  const isOrgWide = session!.user.role === "ADMIN" || session!.user.role === "CXO";
+  const userScope = {
+    ...(isOrgWide ? {} : { OR: [{ id: session!.user.id }, { managerId: session!.user.id }] }),
+    role: { not: "CXO" as const },
+  };
 
   const [users, teams, tasks, dayPlans, standups] = await Promise.all([
     // Everyone in scope who can own work — so people with no plan/status still show up.

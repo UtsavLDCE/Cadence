@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { todayDate } from "@/lib/utils";
 import { DashboardClient } from "./dashboard-client";
@@ -9,6 +10,8 @@ export default async function DashboardPage({
   searchParams: Promise<{ scope?: string | string[] }>;
 }) {
   const session = await auth();
+  // CXO is an exec observer with no personal work — send to the team Feed.
+  if (session!.user.role === "CXO") redirect("/feed");
   const today = todayDate();
   const isManager = session!.user.role === "MANAGER" || session!.user.role === "ADMIN";
 

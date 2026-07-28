@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { resolveTagIds } from "@/lib/task-tags";
 
-const ROLES = ["ADMIN", "MANAGER", "MEMBER"] as const;
+const ROLES = ["ADMIN", "MANAGER", "MEMBER", "CXO"] as const;
 type Role = (typeof ROLES)[number];
 
 export async function GET() {
@@ -101,7 +101,7 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json();
   const { userId, role, teamId, managerId, excludedFromInsights, tagIds, name, email, password } = body as {
     userId: string;
-    role?: "ADMIN" | "MANAGER" | "MEMBER";
+    role?: Role;
     teamId?: string | null;
     managerId?: string | null;
     excludedFromInsights?: boolean;

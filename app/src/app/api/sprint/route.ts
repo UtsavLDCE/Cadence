@@ -3,13 +3,13 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parseSprintCsv } from "@/lib/sprint";
 
-// Admin uploads a sprint CSV as raw text. Rows are matched to Cadence users by
-// email local-part (== the MOTADATA login) and REPLACE any prior rows for the
-// same version — re-uploading the same sprint is a clean refresh, including
-// removals. The uploaded version becomes the current sprint.
+// Admin or manager uploads a sprint CSV as raw text. Rows are matched to Cadence
+// users by email local-part (== the MOTADATA login) and REPLACE any prior rows
+// for the same version — re-uploading the same sprint is a clean refresh,
+// including removals. The uploaded version becomes the current sprint.
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session || session.user.role !== "ADMIN") {
+  if (!session || (session.user.role !== "ADMIN" && session.user.role !== "MANAGER")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

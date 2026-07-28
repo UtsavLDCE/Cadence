@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { todayDate } from "@/lib/utils";
 import { TAGS_INCLUDE } from "@/lib/task-tags";
@@ -7,6 +8,8 @@ import { TasksClient } from "./tasks-client";
 
 export default async function MyDayPage() {
   const session = await auth();
+  // CXO has no personal work — no My Day.
+  if (session!.user.role === "CXO") redirect("/feed");
   const today = todayDate();
 
   const [tasks, overdue, queue, settings, dayPlan] = await Promise.all([

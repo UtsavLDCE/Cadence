@@ -1647,9 +1647,6 @@ function OverdueRow({
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(t.title);
   const [doneOpen, setDoneOpen] = useState(false);
-  // Retroactive close-out is offered for yesterday's tasks only — older overdue
-  // work stays carry-forward-only so history isn't rewritten far back.
-  const isYesterday = t.date.slice(0, 10) === yesterdayStr;
 
   function saveTitle() {
     const trimmed = titleDraft.trim();
@@ -1726,18 +1723,18 @@ function OverdueRow({
           ))}
         </select>
         {/* Close it out where it sits — mark done as of the day it was finished,
-            recording effort — instead of pulling it into today first. Yesterday
-            only; works even on a locked day (completing isn't plan-changing). */}
-        {isYesterday && (
-          <button
-            type="button"
-            onClick={() => setDoneOpen(true)}
-            className="border border-[#cfe6d4] text-[#3f8a5b] hover:bg-[#f0f8f2] font-medium text-xs px-3 py-1.5 rounded-lg transition-colors shrink-0"
-            title="Mark this done with the day and effort it took"
-          >
-            ✓ Done
-          </button>
-        )}
+            recording effort — instead of pulling it into today first. Offered on
+            every overdue row since a user may just have forgotten to flip status;
+            works even on a locked day (completing isn't plan-changing). The dialog
+            floors the date at the task's planned day (server enforces the same). */}
+        <button
+          type="button"
+          onClick={() => setDoneOpen(true)}
+          className="border border-[#cfe6d4] text-[#3f8a5b] hover:bg-[#f0f8f2] font-medium text-xs px-3 py-1.5 rounded-lg transition-colors shrink-0"
+          title="Mark this done with the day and effort it took"
+        >
+          ✓ Done
+        </button>
         {!locked && (
           <button
             type="button"
@@ -1753,7 +1750,7 @@ function OverdueRow({
         <MarkDoneDialog
           title={t.title}
           defaultHours={t.estimatedHours}
-          minDate={yesterdayStr}
+          minDate={t.date.slice(0, 10)}
           maxDate={todayStr}
           onConfirm={(date, hours) => onComplete(t.id, date, hours)}
           onClose={() => setDoneOpen(false)}

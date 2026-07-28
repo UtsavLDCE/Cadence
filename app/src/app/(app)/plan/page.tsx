@@ -27,8 +27,12 @@ export default async function PlanPage({
   searchParams: Promise<{ member?: string | string[]; date?: string | string[] }>;
 }) {
   const session = await auth();
-  const isManager = session!.user.role === "MANAGER" || session!.user.role === "ADMIN";
-  if (!isManager) redirect("/dashboard");
+  const role = session!.user.role;
+  // CXO can plan anyone's day like an admin (org-wide), even though they have no
+  // personal-work screens.
+  const canPlanAll = role === "ADMIN" || role === "CXO";
+  const isManager = role === "MANAGER" || canPlanAll;
+  if (!isManager) redirect("/feed");
 
   const sp = await searchParams;
   const memberId = (Array.isArray(sp.member) ? sp.member[0] : sp.member) || "";
@@ -46,10 +50,9 @@ export default async function PlanPage({
   // shows MEMBER tasks only); goal-setting works for anyone. Widen that gate if
   // leads need to assign work up the line.
   const members = await prisma.user.findMany({
-    where:
-      session!.user.role === "ADMIN"
-        ? { id: { not: session!.user.id } }
-        : { managerId: session!.user.id },
+    where: canPlanAll
+      ? { id: { not: session!.user.id } }
+      : { managerId: session!.user.id },
     select: { id: true, name: true, email: true },
     orderBy: [{ name: "asc" }],
   });

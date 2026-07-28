@@ -402,6 +402,7 @@ enum UserRole {
   ADMIN
   MANAGER
   MEMBER
+  CXO
 }
 
 enum StandupItemType {

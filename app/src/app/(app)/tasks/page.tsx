@@ -9,8 +9,10 @@ import { AllTasksView } from "../dashboard/dashboard-client";
 // (default: hide DONE) and each row expands to view/edit the task's details.
 export default async function TasksPage() {
   const session = await auth();
-  const isManager = session!.user.role === "MANAGER" || session!.user.role === "ADMIN";
-  if (!isManager) redirect("/dashboard");
+  // CXO is a read-only observer of the team's work, so it can view the list too.
+  const role = session!.user.role;
+  const canView = role === "MANAGER" || role === "ADMIN" || role === "CXO";
+  if (!canView) redirect("/dashboard");
 
   const today = todayDate();
 

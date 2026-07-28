@@ -1,14 +1,18 @@
 import { auth } from "@/lib/auth";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { todayDate } from "@/lib/utils";
 import { parseEstimateHours, STARTED_STATES, RESOLVED_STATES } from "@/lib/sprint";
 import { AddToToday } from "./add-button";
+import { SprintUpload } from "./sprint-upload";
 
 // The signed-in member's current-sprint work items (matched by email local-part
 // on import). Items that are overdue, due today, or already started can be pulled
 // straight onto today's plan; the rest are shown read-only for reference.
 export default async function SprintPage() {
   const session = await auth();
+  // CXO has no personal sprint work — no My Sprint.
+  if (session!.user.role === "CXO") redirect("/feed");
   const userId = session!.user.id;
   const isManager = session!.user.role === "MANAGER" || session!.user.role === "ADMIN";
 
@@ -105,6 +109,8 @@ export default async function SprintPage() {
         <h1 className="text-2xl font-bold text-gray-900">My Sprint</h1>
         {version && <span className="text-sm text-gray-500">Version {version}</span>}
       </div>
+
+      {isManager && <SprintUpload version={version} />}
 
       {!version ? (
         <p className="text-sm text-gray-400 text-center py-10">No sprint has been imported yet.</p>
@@ -205,7 +211,6 @@ export default async function SprintPage() {
                       externalId={it.externalId}
                       taskId={addedTaskByExternalId.get(it.externalId) ?? null}
                       submitted={submitted}
-                      canAdd={!!u}
                     />
                   </td>
                 </tr>

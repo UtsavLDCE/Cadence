@@ -120,7 +120,9 @@ export default async function InsightsPage({
   searchParams: Promise<{ range?: string | string[]; from?: string | string[]; to?: string | string[]; scope?: string | string[] }>;
 }) {
   const session = await auth();
-  const isManager = session!.user.role === "MANAGER" || session!.user.role === "ADMIN";
+  // CXO gets the team view (an exec observer), never the personal mirror.
+  const isManager =
+    session!.user.role === "MANAGER" || session!.user.role === "ADMIN" || session!.user.role === "CXO";
 
   const today = todayDate();
   const sp = await searchParams;
@@ -133,10 +135,13 @@ export default async function InsightsPage({
   const scope: "team" | "org" =
     rawScope === "team" || rawScope === "org"
       ? rawScope
-      : session!.user.role === "ADMIN"
+      : session!.user.role === "ADMIN" || session!.user.role === "CXO"
         ? "org"
         : "team";
   const scopeFilter = scope === "team" ? { managerId: session!.user.id } : {};
+  // CXO users are excluded from analytics as subjects — never counted, whatever
+  // the per-user excludedFromInsights flag says.
+  const notExcluded = { excludedFromInsights: false, role: { not: "CXO" as const }, ...scopeFilter };
   const range = resolveRange({ range: str(sp.range), from: str(sp.from), to: str(sp.to) }, today);
   const windowStartISO = range.start.toISOString();
   const bucketDays = trendBucketDays(range.days);
@@ -199,30 +204,30 @@ export default async function InsightsPage({
   // admin has explicitly excluded (`excludedFromInsights`).
   const [members, windowTasks, wipTasks, events, interruptionGroups, planGroups] = await Promise.all([
     prisma.user.findMany({
-      where: { excludedFromInsights: false, ...scopeFilter },
+      where: notExcluded,
       select: { id: true, name: true, email: true, team: { select: { name: true } } },
       orderBy: [{ name: "asc" }],
     }),
     prisma.dailyTask.findMany({
-      where: { user: { excludedFromInsights: false, ...scopeFilter }, date: dateWindow },
+      where: { user: notExcluded, date: dateWindow },
       select: taskSelect,
     }),
     prisma.dailyTask.findMany({
-      where: { user: { excludedFromInsights: false, ...scopeFilter }, status: { in: ["IN_PROGRESS", "HOLD"] }, deferredToDate: null },
+      where: { user: notExcluded, status: { in: ["IN_PROGRESS", "HOLD"] }, deferredToDate: null },
       select: taskSelect,
     }),
     prisma.taskStatusEvent.findMany({
-      where: { at: dateWindow, task: { user: { excludedFromInsights: false, ...scopeFilter } } },
+      where: { at: dateWindow, task: { user: notExcluded } },
       select: { taskId: true, userId: true, from: true, to: true, at: true, blockedOn: true, note: true },
     }),
     prisma.interruption.groupBy({
       by: ["userId"],
-      where: { date: dateWindow, user: { excludedFromInsights: false, ...scopeFilter } },
+      where: { date: dateWindow, user: notExcluded },
       _count: { _all: true },
     }),
     prisma.dayPlan.groupBy({
       by: ["userId"],
-      where: { submittedAt: { not: null }, date: dateWindow, user: { excludedFromInsights: false, ...scopeFilter } },
+      where: { submittedAt: { not: null }, date: dateWindow, user: notExcluded },
       _count: { _all: true },
     }),
   ]);
