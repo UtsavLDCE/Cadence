@@ -25,7 +25,7 @@ export default async function MyDayPage() {
     prisma.dailyTask.findMany({
       where: { userId: session!.user.id, status: { not: "DONE" }, date: { lt: today }, deferredToDate: null },
       orderBy: { date: "asc" },
-      include: TAGS_INCLUDE,
+      include: { ...TAGS_INCLUDE, ...WORKLOG_INCLUDE },
     }),
     prisma.queueItem.findMany({
       where: { userId: session!.user.id },

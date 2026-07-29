@@ -10,12 +10,11 @@ export function cn(...inputs: ClassValue[]) {
 // matches the stored day in every viewer timezone — using the local zone would
 // pull a UTC-midnight date back to the previous calendar day west of UTC.
 export function formatDate(date: Date | string): string {
-  return new Date(date).toLocaleDateString("en-US", {
+  return new Date(date).toLocaleDateString("en-GB", {
     timeZone: "UTC",
-    weekday: "long",
+    day: "2-digit",
+    month: "2-digit",
     year: "numeric",
-    month: "long",
-    day: "numeric",
   });
 }
 

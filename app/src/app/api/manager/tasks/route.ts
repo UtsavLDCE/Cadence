@@ -27,13 +27,10 @@ export async function POST(req: NextRequest) {
   const userId = typeof body.userId === "string" ? body.userId : "";
   if (!userId) return NextResponse.json({ error: "A member is required." }, { status: 400 });
 
-  // The Task List only shows MEMBER-owned tasks, so a task created for a
-  // non-member would silently vanish from the view. Require a MEMBER target.
-  const member = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true } });
+  // Any user can be a target — a lead may drop work on a fellow manager, not just
+  // MEMBER-owned rows. Only require the target exists.
+  const member = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
   if (!member) return NextResponse.json({ error: "Member not found." }, { status: 404 });
-  if (member.role !== "MEMBER") {
-    return NextResponse.json({ error: "Tasks can only be assigned to team members." }, { status: 400 });
-  }
 
   const title = typeof body.title === "string" ? body.title.trim() : "";
   if (!title) return NextResponse.json({ error: "Title is required." }, { status: 400 });

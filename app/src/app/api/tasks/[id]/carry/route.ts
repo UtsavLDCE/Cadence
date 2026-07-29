@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { todayDate } from "@/lib/utils";
 import { TAGS_INCLUDE, tagsConnectInput } from "@/lib/task-tags";
+import { WORKLOG_INCLUDE } from "@/lib/worklog";
 
 // POST /api/tasks/:id/carry  -> bring an overdue task into today's plan.
 //
@@ -59,35 +60,51 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   });
 
   if (originPlan?.submittedAt) {
-    const [, created] = await prisma.$transaction([
-      prisma.dailyTask.update({
+    const created = await prisma.$transaction(async (tx) => {
+      // The deferred original keeps its planned-day record but its effort travels
+      // with the carried-forward copy, so clear its actualHours (worklogs move below).
+      await tx.dailyTask.update({
         where: { id },
-        data: { deferredToDate: today, deferralCause: "DEPRIORITIZED", deferralNote: "Carried forward to today." },
-      }),
-      prisma.dailyTask.create({
+        data: {
+          deferredToDate: today,
+          deferralCause: "DEPRIORITIZED",
+          deferralNote: "Carried forward to today.",
+          actualHours: null,
+        },
+      });
+      const copy = await tx.dailyTask.create({
         data: {
           userId: existing.userId,
           date: today,
           title: existing.title,
           notes: existing.notes,
           estimatedHours: existing.estimatedHours,
+          actualHours: existing.actualHours,
           workType: existing.workType,
           priority: existing.priority,
           categoryId: existing.categoryId,
           deferredFromDate: existing.date,
           tags: tagsConnectInput(existing.tags.map((t) => t.id)),
         },
-        include: TAGS_INCLUDE,
-      }),
-    ]);
+        include: { ...TAGS_INCLUDE, ...WORKLOG_INCLUDE },
+      });
+      // Reassign the logged effort onto the copy so worklog + summed actualHours
+      // ride along with the task instead of being stranded on the deferred original.
+      // WorkLog.date is the day worked, so insights still attribute hours correctly.
+      await tx.workLog.updateMany({ where: { taskId: id }, data: { taskId: copy.id } });
+      return tx.dailyTask.findUniqueOrThrow({
+        where: { id: copy.id },
+        include: { ...TAGS_INCLUDE, ...WORKLOG_INCLUDE },
+      });
+    });
     return NextResponse.json(created, { status: 201 });
   }
 
-  // Original day was never locked — just move it onto today.
+  // Original day was never locked — just move it onto today (worklogs stay attached).
   const moved = await prisma.dailyTask.update({
     where: { id },
     data: { date: today },
-    include: TAGS_INCLUDE,
+    include: { ...TAGS_INCLUDE, ...WORKLOG_INCLUDE },
   });
   return NextResponse.json(moved, { status: 200 });
 }

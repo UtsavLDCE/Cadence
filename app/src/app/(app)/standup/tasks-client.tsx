@@ -221,7 +221,7 @@ export function TasksClient({
     // eslint-disable-next-line react-hooks/set-state-in-effect -- mount-only client clock; must run post-hydration
     setClock({
       greeting: h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening",
-      dateLabel: d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }).toUpperCase(),
+      dateLabel: `${d.toLocaleDateString("en-GB", { weekday: "long" })} · ${d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" })}`.toUpperCase(),
     });
   }, []);
   const { greeting, dateLabel } = clock;
@@ -1545,7 +1545,10 @@ function MarkDoneDialog({
   onConfirm: (date: string, hours: number | null) => Promise<void>;
   onClose: () => void;
 }) {
-  const [date, setDate] = useState(maxDate);
+  // Default to the planned day, not today: completing an overdue task records it
+  // on the day it was actually due (falling within its own plan), not dragged into
+  // today's list. For a same-day task minDate === maxDate, so this is a no-op there.
+  const [date, setDate] = useState(minDate ?? maxDate);
   const [hours, setHours] = useState(defaultHours != null ? String(defaultHours) : "");
   const [saving, setSaving] = useState(false);
 
@@ -1567,6 +1570,19 @@ function MarkDoneDialog({
     onClose();
   }
 
+  // Quick pills: shift maxDate (today) by day offsets, keep only those inside the
+  // allowed [minDate, maxDate] window. "Planned day" (minDate) is offered only when
+  // it differs from today — i.e. an overdue task planned earlier.
+  const shiftDay = (ymd: string, days: number) => {
+    const [y, m, d] = ymd.split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+  };
+  const pills = [
+    { label: "Today", value: maxDate },
+    { label: "Yesterday", value: shiftDay(maxDate, -1) },
+    ...(minDate && minDate !== maxDate ? [{ label: "Planned day", value: minDate }] : []),
+  ].filter((p) => (!minDate || p.value >= minDate) && p.value <= maxDate);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4" onClick={onClose}>
       <form
@@ -1580,13 +1596,32 @@ function MarkDoneDialog({
         </div>
         <label className="block">
           <span className="text-xs font-medium text-[#6b665f]">Done on</span>
+          {pills.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {pills.map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => setDate(p.value)}
+                  className={cn(
+                    "text-xs font-medium rounded-full px-2.5 py-1 border transition-colors",
+                    date === p.value
+                      ? "bg-primary text-white border-primary"
+                      : "bg-white text-[#6b665f] border-[#ece8e1] hover:border-primary hover:text-primary",
+                  )}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          )}
           <input
             type="date"
             value={date}
             min={minDate}
             max={maxDate}
             onChange={(e) => setDate(e.target.value)}
-            className="mt-1 w-full border border-[#ece8e1] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
+            className="mt-1.5 w-full border border-[#ece8e1] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
           />
         </label>
         <label className="block">
@@ -1708,7 +1743,19 @@ function OverdueRow({
               {daysLate}d overdue
             </span>
           </div>
-          <p className="text-xs text-[#b0a99e] mt-0.5">Est. {fmtHours(t.estimatedHours)}</p>
+          <p className="text-xs text-[#b0a99e] mt-0.5">
+            Est. {fmtHours(t.estimatedHours)}
+            {/* Effort already logged on this task shows here so it's visible before
+                it's pulled forward — the log rides along on carry. */}
+            {(t.workLogs?.length ?? 0) > 0 && (
+              <span
+                className="text-[#c08a2d] ml-2"
+                title={(t.workLogs ?? []).map((w) => `${w.date.slice(0, 10)}: ${fmtHours(w.hours)}${w.note ? ` — ${w.note}` : ""}`).join("\n")}
+              >
+                · Logged {fmtHours(t.actualHours)}
+              </span>
+            )}
+          </p>
         </div>
         {/* Priority is editable even on a locked day (PATCH allows it), so an overdue
             task can be reprioritized within the merged list before pulling it forward. */}
