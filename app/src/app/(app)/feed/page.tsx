@@ -1,8 +1,9 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { todayDate, formatDate } from "@/lib/utils";
-import { fmtHours, STATUS_META, PRIORITY_META, type TaskStatus, type Priority } from "@/lib/task-status";
+import { fmtHours, minPlanHours, STATUS_META, PRIORITY_META, type TaskStatus, type Priority } from "@/lib/task-status";
 import { descendantUserIds } from "@/lib/org";
+import { hourLimits } from "@/lib/limits";
 
 // Daily Feed — visible to everyone. Scope is self + direct reports (anyone whose
 // managerId is you); admin sees the whole org. One date, every in-scope user in
@@ -48,6 +49,10 @@ export default async function FeedPage({
     ...(isOrgWide ? {} : { id: { in: [session!.user.id, ...reportIds] } }),
     role: { not: "CXO" as const },
   };
+
+  // Configured day capacity → thresholds for coloring a member's planned load.
+  const { workdayHours } = await hourLimits();
+  const minPlan = minPlanHours(workdayHours);
 
   const [users, teams, tasks, dayPlans, standups] = await Promise.all([
     // Everyone in scope who can own work — so people with no plan/status still show up.
@@ -231,7 +236,7 @@ export default async function FeedPage({
 
       <div className="space-y-3">
         {rows.map((r) => (
-          <MemberCard key={r.user.id} row={r} />
+          <MemberCard key={r.user.id} row={r} workday={workdayHours} minPlan={minPlan} />
         ))}
       </div>
     </div>
@@ -249,6 +254,8 @@ type Task = {
 
 function MemberCard({
   row,
+  workday,
+  minPlan,
 }: {
   row: {
     user: { id: string; name: string | null; email: string | null; role: string };
@@ -263,9 +270,18 @@ function MemberCard({
     hasStandup: boolean;
     active: boolean;
   };
+  workday: number;
+  minPlan: number;
 }) {
   const { user, planned, deferred, unplanned, done, plannedHours, logged, submitted, goal, hasStandup, active } = row;
   const name = user.name || user.email || "Unknown";
+
+  // Color the planned load only once the day is committed. Over the workday cap
+  // reads amber (over-committed); under the 60% floor reads red (under-planned).
+  const overplanned = submitted && plannedHours > workday;
+  const underplanned = submitted && plannedHours < minPlan;
+  const plannedCls = overplanned ? "text-[#c08a2d] font-semibold" : underplanned ? "text-[#c0533a] font-semibold" : "text-[#9c968d]";
+  const planTag = overplanned ? " over" : underplanned ? " low" : "";
 
   return (
     <div className="bg-white rounded-xl border border-[#ece8e1] p-5">
@@ -293,7 +309,8 @@ function MemberCard({
       ) : (
         <>
           <p className="mono text-xs text-[#9c968d] mt-3">
-            {done.length} of {planned.length} planned done · {fmtHours(plannedHours || null)} planned vs {fmtHours(logged || null)} actual
+            {done.length} of {planned.length} planned done ·{" "}
+            <span className={plannedCls}>{fmtHours(plannedHours || null)} planned{planTag}</span> vs {fmtHours(logged || null)} actual
             {unplanned.length > 0 && ` · ${unplanned.length} unplanned`}
           </p>
 
