@@ -27,7 +27,7 @@ type Team = {
   _count: { members: number };
 };
 
-type Settings = { cutoffTime: string; timezone: string };
+type Settings = { cutoffTime: string; timezone: string; maxTaskHours: number; workdayHours: number };
 
 type Engagement = { lastActive: string | null; lastLogin: string | null; activeToday: boolean; tasks7: number; plans7: number; hours7: number };
 
@@ -61,6 +61,8 @@ export function AdminClient({ users, teams, settings, engagement, sprint }: Prop
   const [newTeamName, setNewTeamName] = useState("");
   const [newTeamManagerId, setNewTeamManagerId] = useState("");
   const [cutoffTime, setCutoffTime] = useState(settings.cutoffTime);
+  const [maxTaskHours, setMaxTaskHours] = useState(String(settings.maxTaskHours));
+  const [workdayHours, setWorkdayHours] = useState(String(settings.workdayHours));
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -185,14 +187,21 @@ export function AdminClient({ users, teams, settings, engagement, sprint }: Prop
 
   async function saveSettings(e: React.FormEvent) {
     e.preventDefault();
+    const maxT = parseFloat(maxTaskHours);
+    const workD = parseFloat(workdayHours);
+    if (!(maxT > 0) || !(workD > 0)) {
+      setMessage({ type: "error", text: "Hour caps must be positive numbers." });
+      return;
+    }
     setSaving(true);
     const res = await fetch("/api/settings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cutoffTime }),
+      body: JSON.stringify({ cutoffTime, maxTaskHours: maxT, workdayHours: workD }),
     });
     setSaving(false);
-    setMessage({ type: res.ok ? "success" : "error", text: res.ok ? "Settings saved." : "Failed to save." });
+    const d = await res.json().catch(() => ({}));
+    setMessage({ type: res.ok ? "success" : "error", text: res.ok ? "Settings saved." : d.error || "Failed to save." });
   }
 
   return (
@@ -514,6 +523,38 @@ export function AdminClient({ users, teams, settings, engagement, sprint }: Prop
                   value={cutoffTime}
                   onChange={(e) => setCutoffTime(e.target.value)}
                   className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Max hours per task
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Hard cap on a single task&apos;s estimate — bigger work must be split. Enforced everywhere a task or queue item is created or edited.
+                </p>
+                <input
+                  type="number"
+                  min="0.25"
+                  step="0.25"
+                  value={maxTaskHours}
+                  onChange={(e) => setMaxTaskHours(e.target.value)}
+                  className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300 w-32"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Hours in a workday
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  A day&apos;s realistic capacity. Drives the over-plan warning and the minimum-plan floor (60% of this must be planned before a day can be submitted).
+                </p>
+                <input
+                  type="number"
+                  min="1"
+                  step="0.5"
+                  value={workdayHours}
+                  onChange={(e) => setWorkdayHours(e.target.value)}
+                  className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300 w-32"
                 />
               </div>
               <button

@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { todayDate, formatDate } from "@/lib/utils";
 import { fmtHours, STATUS_META, PRIORITY_META, type TaskStatus, type Priority } from "@/lib/task-status";
+import { descendantUserIds } from "@/lib/org";
 
 // Daily Feed — visible to everyone. Scope is self + direct reports (anyone whose
 // managerId is you); admin sees the whole org. One date, every in-scope user in
@@ -37,12 +38,14 @@ export default async function FeedPage({
   const dateStr = targetDate.toISOString().slice(0, 10);
   const todayStr = todayDate().toISOString().slice(0, 10);
 
-  // A manager sees only themselves + their direct reports. Admin — and CXO, an
-  // org-wide exec observer — see the whole org. CXO users are themselves excluded
-  // as subjects (never listed in the feed), regardless of who's viewing.
+  // A manager sees themselves + their whole reporting subtree (reports, their
+  // reports, … to the leaves). Admin — and CXO, an org-wide exec observer — see
+  // the whole org. CXO users are themselves excluded as subjects (never listed
+  // in the feed), regardless of who's viewing.
   const isOrgWide = session!.user.role === "ADMIN" || session!.user.role === "CXO";
+  const reportIds = isOrgWide ? [] : await descendantUserIds(session!.user.id);
   const userScope = {
-    ...(isOrgWide ? {} : { OR: [{ id: session!.user.id }, { managerId: session!.user.id }] }),
+    ...(isOrgWide ? {} : { id: { in: [session!.user.id, ...reportIds] } }),
     role: { not: "CXO" as const },
   };
 
@@ -140,6 +143,24 @@ export default async function FeedPage({
           >
             ←
           </a>
+          {/* Today/Yesterday quick jumps — labelled, so picking a day never relies
+              on the native input's browser-locale format. */}
+          {dateStr !== todayStr && (
+            <a
+              href={`/feed?date=${todayStr}${teamQ}`}
+              className="px-2.5 py-1.5 rounded-lg border border-[#ece8e1] bg-white text-sm text-[#6b665f] hover:border-primary hover:text-primary transition-colors"
+            >
+              Today
+            </a>
+          )}
+          {dateStr !== shiftDay(todayStr, -1) && (
+            <a
+              href={`/feed?date=${shiftDay(todayStr, -1)}${teamQ}`}
+              className="px-2.5 py-1.5 rounded-lg border border-[#ece8e1] bg-white text-sm text-[#6b665f] hover:border-primary hover:text-primary transition-colors"
+            >
+              Yesterday
+            </a>
+          )}
           <form method="GET" className="flex items-center gap-1.5">
             {activeTeam !== "all" && <input type="hidden" name="team" value={activeTeam} />}
             <input
@@ -147,6 +168,7 @@ export default async function FeedPage({
               name="date"
               defaultValue={dateStr}
               max={todayStr}
+              title={`Selected: ${formatDate(targetDate)}`}
               className="border border-[#ece8e1] rounded-lg px-2.5 py-1.5 text-sm text-[#2c2925] bg-white focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
             />
             <button

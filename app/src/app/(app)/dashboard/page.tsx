@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { todayDate } from "@/lib/utils";
 import { DashboardClient } from "./dashboard-client";
+import { descendantUserIds } from "@/lib/org";
 
 export default async function DashboardPage({
   searchParams,
@@ -27,7 +28,10 @@ export default async function DashboardPage({
       : session!.user.role === "ADMIN"
         ? "org"
         : "team";
-  const scopeFilter = scope === "team" ? { managerId: session!.user.id } : {};
+  const scopeFilter =
+    scope === "team"
+      ? { id: { in: await descendantUserIds(session!.user.id) } }
+      : {};
 
   const settings = await prisma.appSettings.upsert({
     where: { id: "singleton" },

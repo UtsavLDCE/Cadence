@@ -1,3 +1,11 @@
+// A single task caps at this many hours of estimated effort — bigger work must
+// be split so the day plan stays honest and reviewable. 4h is the default; an
+// admin can override it via AppSettings.maxTaskHours (read through @/lib/limits).
+// Enforced server-side (/api/tasks etc.) and surfaced client-side with chunkMsg().
+export const MAX_TASK_HOURS = 4;
+export const chunkMsg = (max: number = MAX_TASK_HOURS) =>
+  `Chunk/divide your work into smaller chunks — max ${fmtHours(max)} per task.`;
+
 export type TaskStatus = "TODO" | "IN_PROGRESS" | "HOLD" | "DONE";
 
 export const TASK_STATUSES: TaskStatus[] = ["TODO", "IN_PROGRESS", "HOLD", "DONE"];
@@ -98,8 +106,17 @@ export function parsePriority(value: unknown): Priority | null {
 }
 
 // A realistic single-day capacity. Planning estimated effort beyond this means
-// the day is over-committed — surfaced as a nudge, not a hard block.
+// the day is over-committed — surfaced as a nudge, not a hard block. 8h is the
+// default; an admin can override it via AppSettings.workdayHours (@/lib/limits).
 export const WORKDAY_HOURS = 8;
+
+// Minimum planned effort before a day can be submitted: 60% of the workday.
+// Unlike the over-plan nudge, this IS a hard block — enforced server-side
+// (/api/day-plan submit) and surfaced client-side with minPlanMsg().
+export const MIN_PLAN_FRACTION = 0.6;
+export const minPlanHours = (workday: number = WORKDAY_HOURS) => workday * MIN_PLAN_FRACTION;
+export const minPlanMsg = (workday: number = WORKDAY_HOURS) =>
+  `Plan at least ${fmtHours(minPlanHours(workday))} of work (${Math.round(MIN_PLAN_FRACTION * 100)}% of a ${fmtHours(workday)} day) before submitting.`;
 
 // Planning accuracy = how close estimates were to reality, measured ONLY over
 // completed work (an in-progress task has partial actuals and would always read

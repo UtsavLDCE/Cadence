@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { todayDate } from "@/lib/utils";
-import { parsePriority } from "@/lib/task-status";
+import { parsePriority, chunkMsg } from "@/lib/task-status";
+import { hourLimits } from "@/lib/limits";
 import { recordStatusChange } from "@/lib/task-events";
 import { resolveCategoryId } from "@/lib/task-categories";
 import { resolveTagIds, tagsConnectInput, TAGS_INCLUDE } from "@/lib/task-tags";
@@ -71,6 +72,10 @@ export async function POST(req: NextRequest) {
   // A planned task must be scoped up front; unplanned done work needn't be.
   if (!asDone && (estimatedHours === null || estimatedHours <= 0)) {
     return NextResponse.json({ error: "An effort estimate (in hours) is required." }, { status: 400 });
+  }
+  const { maxTaskHours } = await hourLimits();
+  if (estimatedHours !== null && estimatedHours > maxTaskHours) {
+    return NextResponse.json({ error: chunkMsg(maxTaskHours) }, { status: 400 });
   }
   const workType = body.workType === "INTERRUPTION" ? "INTERRUPTION" : "FOCUS";
   // Explicit unplanned marker (set by the ⚡ log-unplanned-work path). This is

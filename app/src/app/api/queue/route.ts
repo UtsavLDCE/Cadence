@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { parsePriority } from "@/lib/task-status";
+import { parsePriority, chunkMsg } from "@/lib/task-status";
+import { hourLimits } from "@/lib/limits";
 
 // GET /api/queue  -> caller's personal backlog (future work), ordered by position
 export async function GET() {
@@ -27,6 +28,10 @@ export async function POST(req: NextRequest) {
   const estimatedHours = parseHours(body.estimatedHours);
   if (estimatedHours === null || estimatedHours <= 0) {
     return NextResponse.json({ error: "An effort estimate (in hours) is required." }, { status: 400 });
+  }
+  const { maxTaskHours } = await hourLimits();
+  if (estimatedHours > maxTaskHours) {
+    return NextResponse.json({ error: chunkMsg(maxTaskHours) }, { status: 400 });
   }
 
   // New items go to the bottom of the backlog.

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { todayDate } from "@/lib/utils";
+import { minPlanHours, minPlanMsg } from "@/lib/task-status";
+import { hourLimits } from "@/lib/limits";
 import type { Prisma } from "@prisma/client";
 
 // GET /api/day-plan -> the caller's plan (goal + submission state) for today.
@@ -79,6 +81,16 @@ export async function PATCH(req: NextRequest) {
   }
 
   if (body.submit === true) {
+    // Backstop the 60%-of-workday minimum: sum today's plannable (non-deferred)
+    // task estimates. Covers any client that skips the inline guard.
+    const agg = await prisma.dailyTask.aggregate({
+      where: { userId: session.user.id, date: today, deferredToDate: null },
+      _sum: { estimatedHours: true },
+    });
+    const { workdayHours } = await hourLimits();
+    if ((agg._sum.estimatedHours ?? 0) < minPlanHours(workdayHours)) {
+      return NextResponse.json({ error: minPlanMsg(workdayHours) }, { status: 400 });
+    }
     data.submittedAt = new Date();
   }
 

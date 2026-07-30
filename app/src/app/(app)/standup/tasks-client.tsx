@@ -9,12 +9,14 @@ import {
   TASK_STATUSES,
   STATUS_META,
   fmtHours,
-  WORKDAY_HOURS,
+  minPlanHours,
+  minPlanMsg,
   planningAccuracy,
   DEFERRAL_CAUSES,
   DEFERRAL_CAUSE_META,
   PRIORITIES,
   PRIORITY_META,
+  chunkMsg,
   byPriority,
   type TaskStatus,
   type DeferralCause,
@@ -127,6 +129,9 @@ export function TasksClient({
   userName,
   isAdmin,
   isManager,
+  unsubmittedTeammates,
+  maxTaskHours,
+  workdayHours,
 }: {
   initialTasks: Task[];
   initialQueue: QueueItem[];
@@ -138,6 +143,12 @@ export function TasksClient({
   // Managers/admins can remove a task even after the day's plan is locked, matching
   // the DELETE /api/tasks/:id override. Members must defer a locked task instead.
   isManager: boolean;
+  // Same-team peers who haven't submitted today's plan yet — a caution nudge.
+  unsubmittedTeammates: string[];
+  // Admin-configurable caps (AppSettings). maxTaskHours = per-task hard cap;
+  // workdayHours = single-day capacity driving the over-plan + min-plan hints.
+  maxTaskHours: number;
+  workdayHours: number;
 }) {
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
   const [queue, setQueue] = useState<QueueItem[]>(initialQueue);
@@ -159,6 +170,10 @@ export function TasksClient({
   // Shared-work offers addressed to me. Fetched client-side so the server page
   // stays untouched; accept copies onto today, decline drops it.
   const [invites, setInvites] = useState<Invite[]>([]);
+  // Past-noon flag for the "submit before 12 PM" caution. Set after mount so the
+  // local-time check doesn't cause an SSR hydration mismatch.
+  const [pastNoon, setPastNoon] = useState(false);
+  useEffect(() => { setPastNoon(new Date().getHours() >= 12); }, []);
   useEffect(() => {
     let alive = true;
     fetch("/api/invites")
@@ -275,6 +290,11 @@ export function TasksClient({
       setError("Keep at least one task in today's goal before submitting.");
       return;
     }
+    const keptHours = keeping.reduce((s, t) => s + (t.estimatedHours ?? 0), 0);
+    if (keptHours < minPlanHours(workdayHours)) {
+      setError(minPlanMsg(workdayHours));
+      return;
+    }
     // Catch-up nudge: if yesterday still has unfinished tasks, remind the user to
     // close them out (mark done / defer in "My queue") before locking today.
     // Soft and skippable — they can proceed regardless.
@@ -363,7 +383,7 @@ export function TasksClient({
   const doneCount = doneTasks.length;
   // Share of estimated effort already logged — fills the dark "Today's goal" bar.
   const effortPct = totalEstimate > 0 ? Math.min(100, Math.round((totalActual / totalEstimate) * 100)) : 0;
-  const overBy = totalEstimate - WORKDAY_HOURS;
+  const overBy = totalEstimate - workdayHours;
 
   // Planning accuracy for today — estimate-vs-actual over completed tasks only.
   const estDone = doneTasks.reduce((s, t) => s + (t.estimatedHours ?? 0), 0);
@@ -467,6 +487,10 @@ export function TasksClient({
     const est = Number(estimate);
     if (estimate === "" || !Number.isFinite(est) || est <= 0) {
       setError("Add an effort estimate (in hours) before adding a task.");
+      return;
+    }
+    if (est > maxTaskHours) {
+      setError(chunkMsg(maxTaskHours));
       return;
     }
     setAdding(true);
@@ -770,15 +794,53 @@ export function TasksClient({
         <InviteInbox invites={invites} onAccept={acceptInvite} onDecline={declineInvite} />
       )}
 
+      {/* Submit-before-noon caution — shown until today's plan is submitted, turns
+          urgent (red) once it's past 12 PM local. */}
+      {!submitted && (
+        <div
+          className={cn(
+            "flex items-start gap-3 rounded-xl px-4 py-3 text-sm border",
+            pastNoon
+              ? "bg-[#fbeceb] border-[#f0d4d0] text-[#b0402f]"
+              : "bg-[#fdf7ec] border-[#f0e2c4] text-[#a8791f]",
+          )}
+        >
+          <span className="mt-0.5 text-base leading-none">{pastNoon ? "⏰" : "🕛"}</span>
+          <div>
+            <p className="font-semibold">
+              {pastNoon ? "You're past the 12 PM cutoff." : "Submit your plan before 12 PM."}
+            </p>
+            <p className={pastNoon ? "text-[#c0533a]" : "text-[#c08a2d]"}>
+              Lock in today&apos;s plan by noon so your day&apos;s committed early. This reminder stays until you submit.
+            </p>
+          </div>
+        </div>
+      )}
+
       {overplanned && (
         <div className="flex items-start gap-3 bg-[#fdf7ec] border border-[#f0e2c4] text-[#a8791f] rounded-xl px-4 py-3 text-sm">
           <span className="mt-0.5 text-base leading-none">⚠️</span>
           <div>
             <p className="font-semibold">You&apos;re overplanning.</p>
             <p className="text-[#c08a2d]">
-              You&apos;ve planned <span className="font-medium">{fmtHours(totalEstimate)}</span> of work, but a day only holds about {WORKDAY_HOURS}h.
+              You&apos;ve planned <span className="font-medium">{fmtHours(totalEstimate)}</span> of work, but a day only holds about {fmtHours(workdayHours)}.
               That&apos;s {fmtHours(overBy)} more than you can realistically do — trim a task or move it to another day.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Team nudge — same-team peers who haven't locked in today's plan yet. */}
+      {unsubmittedTeammates.length > 0 && (
+        <div className="flex items-start gap-3 bg-[#fdf7ec] border border-[#f0e2c4] text-[#a8791f] rounded-xl px-4 py-3 text-sm">
+          <span className="mt-0.5 text-base leading-none">🕛</span>
+          <div>
+            <p className="font-semibold">
+              {unsubmittedTeammates.length === 1
+                ? "1 teammate hasn't submitted today's plan."
+                : `${unsubmittedTeammates.length} teammates haven't submitted today's plan.`}
+            </p>
+            <p className="text-[#c08a2d]">{unsubmittedTeammates.join(", ")}</p>
           </div>
         </div>
       )}
@@ -866,7 +928,12 @@ export function TasksClient({
                 </p>
                 {overplanned && (
                   <p className="text-sm text-[#c08a2d] mt-2">
-                    ⚠️ That&apos;s {fmtHours(overBy)} over a ~{WORKDAY_HOURS}h day. Consider trimming or moving a task before you start.
+                    ⚠️ That&apos;s {fmtHours(overBy)} over a ~{fmtHours(workdayHours)} day. Consider trimming or moving a task before you start.
+                  </p>
+                )}
+                {totalEstimate < minPlanHours(workdayHours) && (
+                  <p className="text-sm text-[#c0533a] mt-2">
+                    ⚠️ {minPlanMsg(workdayHours)} You&apos;re {fmtHours(minPlanHours(workdayHours) - totalEstimate)} short — add more before submitting.
                   </p>
                 )}
                 {goalChecklist}
@@ -1196,6 +1263,7 @@ export function TasksClient({
         locked={submitted}
         yesterdayStr={yesterdayStr}
         todayStr={todayStr}
+        maxTaskHours={maxTaskHours}
       />
         </aside>
       </div>
@@ -1240,6 +1308,21 @@ function UnplannedWork({
   const [note, setNote] = useState<string | null>(null);
 
   const backdated = date !== "" && date !== todayStr;
+
+  // Quick day pills — today, yesterday, and the two days before (labelled by
+  // weekday) so backdating a missed day is one click, not a date-picker fiddle.
+  const shiftDay = (ymd: string, days: number) => {
+    const [y, m, d] = ymd.split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+  };
+  const weekday = (ymd: string) =>
+    new Date(`${ymd}T00:00:00Z`).toLocaleDateString("en-GB", { weekday: "long", timeZone: "UTC" });
+  const dayPills = [
+    { label: "Today", value: todayStr },
+    { label: "Yesterday", value: shiftDay(todayStr, -1) },
+    { label: weekday(shiftDay(todayStr, -2)), value: shiftDay(todayStr, -2) },
+    { label: weekday(shiftDay(todayStr, -3)), value: shiftDay(todayStr, -3) },
+  ];
 
   function reset() {
     setTitle("");
@@ -1427,6 +1510,23 @@ function UnplannedWork({
 
             <div>
               <label className={labelCls}>Day this happened</label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {dayPills.map((p) => (
+                  <button
+                    key={p.value}
+                    type="button"
+                    onClick={() => setDate(p.value)}
+                    className={cn(
+                      "text-xs font-medium rounded-full px-2.5 py-1 border transition-colors",
+                      date === p.value
+                        ? "bg-primary text-white border-primary"
+                        : "bg-white text-[#6b665f] border-[#ece8e1] hover:border-primary hover:text-primary",
+                    )}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
               <input
                 type="date"
                 value={date}
@@ -1438,6 +1538,9 @@ function UnplannedWork({
                   backdated && "border-primary text-primary",
                 )}
               />
+              {date && (
+                <p className="text-xs text-[#9c968d] mt-1">Selected: {fmtMoveDate(`${date}T00:00:00Z`)}</p>
+              )}
               {backdated && (
                 <p className="text-xs text-primary mt-1">
                   Backdated — this won&apos;t appear in today&apos;s list, but it&apos;s on the record for that day.
@@ -1828,6 +1931,7 @@ function QueueSection({
   locked,
   yesterdayStr,
   todayStr,
+  maxTaskHours,
 }: {
   queue: QueueItem[];
   overdue: OverdueTask[];
@@ -1842,6 +1946,7 @@ function QueueSection({
   locked: boolean;
   yesterdayStr: string;
   todayStr: string;
+  maxTaskHours: number;
 }) {
   const [title, setTitle] = useState("");
   const [estimate, setEstimate] = useState("");
@@ -1869,6 +1974,10 @@ function QueueSection({
     const est = Number(estimate);
     if (estimate === "" || !Number.isFinite(est) || est <= 0) {
       setError("Add an effort estimate (in hours) before queuing this.");
+      return;
+    }
+    if (est > maxTaskHours) {
+      setError(chunkMsg(maxTaskHours));
       return;
     }
     setAdding(true);
@@ -2672,7 +2781,7 @@ function TaskRow({
           <button
             type="button"
             onClick={() => onToQueue(task.id)}
-            className="text-xs text-[#ddd8d0] hover:text-primary shrink-0"
+            className="text-xs text-[#9c968d] hover:text-primary border border-[#ece8e1] hover:border-primary rounded-lg px-2 py-1 shrink-0 transition-colors"
             title="Move to queue"
           >
             ↩ Queue

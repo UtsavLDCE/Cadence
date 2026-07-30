@@ -3,7 +3,8 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { todayDate } from "@/lib/utils";
 import type { Prisma, TaskStatus, DeferralCause } from "@prisma/client";
-import { parsePriority } from "@/lib/task-status";
+import { parsePriority, chunkMsg } from "@/lib/task-status";
+import { hourLimits } from "@/lib/limits";
 import { recordStatusChange } from "@/lib/task-events";
 import { resolveCategoryId } from "@/lib/task-categories";
 import { resolveTagIds, tagsSetInput, TAGS_INCLUDE } from "@/lib/task-tags";
@@ -95,6 +96,10 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     const h = parseHours(body.estimatedHours);
     if (h === null || h <= 0) {
       return NextResponse.json({ error: "An effort estimate (in hours) is required." }, { status: 400 });
+    }
+    const { maxTaskHours } = await hourLimits();
+    if (h > maxTaskHours) {
+      return NextResponse.json({ error: chunkMsg(maxTaskHours) }, { status: 400 });
     }
     data.estimatedHours = h;
   }

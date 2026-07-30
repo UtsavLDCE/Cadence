@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 export type Category = {
@@ -76,89 +76,121 @@ export function CategorySelect({
   disabled?: boolean;
   title?: string;
 }) {
-  const [adding, setAdding] = useState(false);
-  const [name, setName] = useState("");
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
 
   const base =
     "text-sm border border-[#ece8e1] rounded-lg px-2 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-[#e0533a55]";
 
-  async function submitNew() {
-    const n = name.trim();
-    if (!n) {
-      setAdding(false);
-      return;
+  const selectedName = value ? categories.find((c) => c.id === value)?.name : null;
+
+  const query = text.trim().toLowerCase();
+  const matches = useMemo(
+    () => categories.filter((c) => c.name.toLowerCase().includes(query)),
+    [categories, query],
+  );
+  const exact = categories.some((c) => c.name.toLowerCase() === query);
+  const canCreate = query !== "" && !exact;
+
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e: MouseEvent) {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
     }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  const pick = useCallback((id: string | null) => {
+    onChange(id);
+    setText("");
+    setOpen(false);
+  }, [onChange]);
+
+  async function submitNew() {
+    const n = text.trim();
+    if (!n) return;
     setBusy(true);
     const cat = await onCreate(n);
     setBusy(false);
-    if (cat) {
-      onChange(cat.id);
-      setName("");
-      setAdding(false);
-    }
-  }
-
-  if (adding) {
-    return (
-      <div className={cn("flex items-center gap-1", className)}>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              submitNew();
-            } else if (e.key === "Escape") {
-              setAdding(false);
-              setName("");
-            }
-          }}
-          autoFocus
-          maxLength={60}
-          placeholder="New category…"
-          className={cn(base, "flex-1 min-w-0")}
-        />
-        <button
-          type="button"
-          onClick={submitNew}
-          disabled={busy || !name.trim()}
-          className="bg-primary hover:bg-primary-hover disabled:opacity-50 text-white text-xs font-medium px-2.5 py-2 rounded-lg transition-colors shrink-0"
-        >
-          {busy ? "…" : "Add"}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setAdding(false);
-            setName("");
-          }}
-          className="text-xs text-[#b0a99e] hover:text-[#6b665f] px-1 shrink-0"
-        >
-          ✕
-        </button>
-      </div>
-    );
+    if (cat) pick(cat.id);
   }
 
   return (
-    <select
-      value={value ?? ""}
-      disabled={disabled}
-      title={title}
-      onChange={(e) => {
-        if (e.target.value === "__new__") setAdding(true);
-        else onChange(e.target.value || null);
-      }}
-      className={cn(base, className)}
-    >
-      <option value="">Uncategorized</option>
-      {categories.map((c) => (
-        <option key={c.id} value={c.id}>
-          {c.name}
-        </option>
-      ))}
-      <option value="__new__">+ Add category…</option>
-    </select>
+    <div ref={boxRef} className={cn("relative", className)}>
+      <button
+        type="button"
+        disabled={disabled}
+        title={title}
+        onClick={() => setOpen((o) => !o)}
+        className={cn(base, "w-full text-left flex items-center justify-between gap-2 disabled:opacity-50")}
+      >
+        <span className={cn("truncate", !selectedName && "text-[#b0a99e]")}>
+          {selectedName ?? "Uncategorized"}
+        </span>
+        <span className="text-[#b0a99e] shrink-0">▾</span>
+      </button>
+
+      {open && (
+        <div className="absolute z-30 mt-1 w-full min-w-[12rem] bg-white border border-[#ece8e1] rounded-lg shadow-lg py-1">
+          <input
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                if (matches[0]) pick(matches[0].id);
+                else if (canCreate) submitNew();
+              } else if (e.key === "Escape") {
+                setOpen(false);
+              }
+            }}
+            autoFocus
+            maxLength={60}
+            placeholder="Search or add…"
+            className="w-full text-sm px-3 py-1.5 border-b border-[#ece8e1] outline-none"
+          />
+          <div className="max-h-52 overflow-auto py-1">
+            {query === "" && (
+              <button
+                type="button"
+                onClick={() => pick(null)}
+                className="w-full text-left px-3 py-1.5 text-sm text-[#4a453e] hover:bg-[#f6f4f1]"
+              >
+                Uncategorized
+              </button>
+            )}
+            {matches.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => pick(c.id)}
+                className={cn(
+                  "w-full text-left px-3 py-1.5 text-sm text-[#4a453e] hover:bg-[#f6f4f1]",
+                  c.id === value && "font-medium bg-[#f6f4f1]",
+                )}
+              >
+                {c.name}
+              </button>
+            ))}
+            {matches.length === 0 && !canCreate && (
+              <p className="px-3 py-1.5 text-xs text-[#b0a99e]">No match.</p>
+            )}
+            {canCreate && (
+              <button
+                type="button"
+                onClick={submitNew}
+                disabled={busy}
+                className="w-full text-left px-3 py-1.5 text-sm text-primary hover:bg-[#f6f4f1] disabled:opacity-50"
+              >
+                {busy ? "Adding…" : `+ Add “${text.trim()}”`}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

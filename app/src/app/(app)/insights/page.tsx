@@ -10,6 +10,7 @@ import {
   type InsightTaskRow,
   type InsightEventRow,
 } from "@/lib/insights";
+import { descendantUserIds } from "@/lib/org";
 import { resolveRange, trendBucketDays } from "@/lib/insights-range";
 import { InsightsClient } from "./insights-client";
 import { MemberMirror } from "./member-mirror";
@@ -139,7 +140,10 @@ export default async function InsightsPage({
       : session!.user.role === "ADMIN" || session!.user.role === "CXO"
         ? "org"
         : "team";
-  const scopeFilter = scope === "team" ? { managerId: session!.user.id } : {};
+  const scopeFilter =
+    scope === "team"
+      ? { id: { in: await descendantUserIds(session!.user.id) } }
+      : {};
   // CXO users are excluded from analytics as subjects — never counted, whatever
   // the per-user excludedFromInsights flag says.
   const notExcluded = { excludedFromInsights: false, role: { not: "CXO" as const }, ...scopeFilter };

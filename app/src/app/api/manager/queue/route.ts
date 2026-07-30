@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { parsePriority } from "@/lib/task-status";
+import { parsePriority, chunkMsg } from "@/lib/task-status";
+import { hourLimits } from "@/lib/limits";
 import { parseHours, parseNotes } from "../../queue/route";
 
 // POST /api/manager/queue  { userId, title, estimatedHours?, priority?, notes? }
@@ -37,6 +38,10 @@ export async function POST(req: NextRequest) {
     const h = parseHours(body.estimatedHours);
     if (h === null || h <= 0) {
       return NextResponse.json({ error: "If you set an estimate, it must be a positive number of hours." }, { status: 400 });
+    }
+    const { maxTaskHours } = await hourLimits();
+    if (h > maxTaskHours) {
+      return NextResponse.json({ error: chunkMsg(maxTaskHours) }, { status: 400 });
     }
     estimatedHours = h;
   }

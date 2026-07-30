@@ -74,6 +74,25 @@ export default async function MyDayPage() {
   }
   const tasksWithShares = tasks.map((t) => ({ ...t, sharedWith: sharedByTask.get(t.id) ?? [] }));
 
+  // Teammates (same Team group) who haven't locked in today's plan yet — a peer
+  // nudge shown as a caution on My Day. Scoped strictly to the viewer's own team;
+  // no cross-team visibility. Empty when the user has no team.
+  const teamId = session!.user.teamId;
+  const unsubmittedTeammates = teamId
+    ? (
+        await prisma.user.findMany({
+          where: {
+            teamId,
+            id: { not: session!.user.id },
+            role: { not: "CXO" },
+            dayPlans: { none: { date: today, submittedAt: { not: null } } },
+          },
+          select: { name: true, email: true },
+          orderBy: { name: "asc" },
+        })
+      ).map((u) => u.name ?? u.email ?? "Someone")
+    : [];
+
   return (
     <div>
       <TasksClient
@@ -85,6 +104,9 @@ export default async function MyDayPage() {
         userName={session!.user.name ?? null}
         isAdmin={session!.user.role === "ADMIN"}
         isManager={session!.user.role === "MANAGER" || session!.user.role === "ADMIN"}
+        unsubmittedTeammates={unsubmittedTeammates}
+        maxTaskHours={settings.maxTaskHours}
+        workdayHours={settings.workdayHours}
       />
     </div>
   );

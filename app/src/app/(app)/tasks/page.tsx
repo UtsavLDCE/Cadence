@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { todayDate } from "@/lib/utils";
 import { AllTasksView } from "../dashboard/dashboard-client";
+import { descendantUserIds } from "@/lib/org";
 
 // Full team task list. Manager/admin only — members see their own work on
 // "My Day", not everyone's. Spans all days and statuses; the client filters it
@@ -16,12 +17,12 @@ export default async function TasksPage() {
 
   const today = todayDate();
 
-  // A manager sees only their reporting line: themselves + direct reports
-  // (User.managerId == me), same scope as Daily Feed / Insights. Admin and CXO
-  // see the whole org.
+  // A manager sees their whole reporting subtree: themselves + every report
+  // beneath them, transitively — same scope as Daily Feed / Insights. Admin and
+  // CXO see the whole org.
   const userScope =
     role === "MANAGER"
-      ? { OR: [{ id: session!.user.id }, { managerId: session!.user.id }] }
+      ? { id: { in: [session!.user.id, ...(await descendantUserIds(session!.user.id))] } }
       : {};
 
   const [members, allTasks] = await Promise.all([

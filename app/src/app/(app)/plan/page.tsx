@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { todayDate, formatDate } from "@/lib/utils";
 import { TAGS_INCLUDE } from "@/lib/task-tags";
 import { PlanForMemberClient } from "./plan-client";
+import { descendantUserIds } from "@/lib/org";
+import { hourLimits } from "@/lib/limits";
 
 // Plan a member's day — manager/admin only. A lead picks one of the people they
 // manage ("followed members" = direct reports; admin sees every member), a day
@@ -43,8 +45,9 @@ export default async function PlanPage({
       : todayDate();
   const dateStr = targetDate.toISOString().slice(0, 10);
 
-  // Admin plans for anyone; a manager plans for their whole reporting line
-  // (User.managerId == me), same scope as Daily Feed / Insights. No role gate —
+  // Admin plans for anyone; a manager plans for their whole reporting subtree
+  // (every report beneath them, transitively), same scope as Daily Feed /
+  // Insights. No role gate —
   // a report who is themselves a MANAGER must still show.
   // ponytail: adding a task to a non-MEMBER 400s at /api/manager/tasks (Task List
   // shows MEMBER tasks only); goal-setting works for anyone. Widen that gate if
@@ -52,7 +55,7 @@ export default async function PlanPage({
   const members = await prisma.user.findMany({
     where: canPlanAll
       ? { id: { not: session!.user.id } }
-      : { managerId: session!.user.id },
+      : { id: { in: await descendantUserIds(session!.user.id) } },
     select: { id: true, name: true, email: true },
     orderBy: [{ name: "asc" }],
   });
@@ -241,6 +244,7 @@ export default async function PlanPage({
               initialGoal={plan?.goal ?? ""}
               submitted={Boolean(plan?.submittedAt)}
               initialTasks={JSON.parse(JSON.stringify(tasks))}
+              maxTaskHours={(await hourLimits()).maxTaskHours}
             />
           )}
         </div>

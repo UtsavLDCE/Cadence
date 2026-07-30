@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
-  STATUS_META, PRIORITY_META, PRIORITIES, fmtHours,
+  STATUS_META, PRIORITY_META, PRIORITIES, fmtHours, chunkMsg,
   type Priority, type TaskStatus,
 } from "@/lib/task-status";
 import { CategorySelect, useCategories, type Category } from "@/components/category-select";
@@ -36,6 +36,7 @@ export function PlanForMemberClient({
   initialGoal,
   submitted,
   initialTasks,
+  maxTaskHours,
 }: {
   member: Member;
   date: string;
@@ -43,6 +44,7 @@ export function PlanForMemberClient({
   initialGoal: string;
   submitted: boolean;
   initialTasks: PlanTask[];
+  maxTaskHours: number;
 }) {
   const router = useRouter();
   const memberName = member.name || member.email || "this member";
@@ -87,6 +89,7 @@ export function PlanForMemberClient({
           categories={categories}
           createCategory={createCategory}
           onCreated={() => router.refresh()}
+          maxTaskHours={maxTaskHours}
         />
       </div>
     </div>
@@ -197,12 +200,14 @@ function AddTaskForm({
   categories,
   createCategory,
   onCreated,
+  maxTaskHours,
 }: {
   userId: string;
   date: string;
   categories: Category[];
   createCategory: (name: string) => Promise<Category | null>;
   onCreated: () => void;
+  maxTaskHours: number;
 }) {
   const [title, setTitle] = useState("");
   const [priority, setPriority] = useState<Priority>("MEDIUM");
@@ -218,6 +223,10 @@ function AddTaskForm({
     if (!t) { setError("Give the task a title."); return; }
     if (estimate !== "" && (!Number.isFinite(Number(estimate)) || Number(estimate) <= 0)) {
       setError("If you set an estimate, it must be a positive number of hours.");
+      return;
+    }
+    if (estimate !== "" && Number(estimate) > maxTaskHours) {
+      setError(chunkMsg(maxTaskHours));
       return;
     }
     setBusy(true);

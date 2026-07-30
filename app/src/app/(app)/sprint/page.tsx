@@ -5,6 +5,7 @@ import { todayDate } from "@/lib/utils";
 import { parseEstimateHours, STARTED_STATES, RESOLVED_STATES } from "@/lib/sprint";
 import { AddToToday } from "./add-button";
 import { SprintUpload } from "./sprint-upload";
+import { descendantUserIds } from "@/lib/org";
 
 // The signed-in member's current-sprint work items (matched by email local-part
 // on import). Items that are overdue, due today, or already started can be pulled
@@ -27,13 +28,13 @@ export default async function SprintPage() {
     : [];
 
   // A manager reviews their reports' work: any sprint item in "In Review" that
-  // belongs to one of their direct reports is pending THEIR review. Pulled from
-  // the reports' items (not the manager's own), shown with the assignee's name.
-  // ponytail: direct-report scope (user.managerId == me); widen to org-wide if
+  // belongs to anyone in their reporting subtree is pending THEIR review. Pulled
+  // from the reports' items (not the manager's own), shown with the assignee's name.
+  // ponytail: subtree scope (whole reporting line below me); widen to org-wide if
   // an admin needs to review everyone's In Review, not just their reports'.
   const reviewQueue = isManager && version
     ? await prisma.sprintItem.findMany({
-        where: { version, state: "In Review", user: { managerId: userId } },
+        where: { version, state: "In Review", user: { id: { in: await descendantUserIds(userId) } } },
         orderBy: [{ priority: "asc" }, { externalId: "asc" }],
         include: { user: { select: { name: true, email: true } } },
       })

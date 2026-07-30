@@ -357,6 +357,11 @@ model AppSettings {
   id          String   @id @default("singleton")
   cutoffTime  String   @default("12:00")
   timezone    String   @default("UTC")
+  // Admin-configurable planning caps. maxTaskHours is the hard per-task ceiling
+  // (default 4h); workdayHours is the soft single-day capacity (default 8h) that
+  // drives the over-plan nudge and the 60%-of-a-day minimum-plan floor.
+  maxTaskHours Float   @default(4)
+  workdayHours Float   @default(8)
   // Which imported sprint version is "current" — drives the member My-Sprint view
   // and the admin alignment roll-up. Set by admin on CSV import.
   currentSprintVersion String?
