@@ -58,7 +58,7 @@ export function NavBar({ user, hasSprint }: { user: User; hasSprint: boolean }) 
     <header className="sticky top-0 z-50 bg-white border-b border-[#ece8e1]">
       <div className="flex items-center justify-between h-[58px] px-[26px]">
         <div className="flex items-center gap-[26px]">
-          <Link href="/standup" className="flex items-center gap-2.5">
+          <Link href="/dashboard" className="flex items-center gap-2.5">
             <span className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center text-white font-bold text-[15px]">C</span>
             <span className="font-semibold tracking-[-0.01em] text-[#1c1a17]">Cadence</span>
           </Link>

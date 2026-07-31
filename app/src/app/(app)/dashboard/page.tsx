@@ -2,195 +2,73 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { todayDate } from "@/lib/utils";
+import { hourLimits } from "@/lib/limits";
+import { minPlanHours } from "@/lib/task-status";
+import { buildCalendar, calendarGridStart } from "@/lib/work-calendar";
 import { DashboardClient } from "./dashboard-client";
-import { descendantUserIds } from "@/lib/org";
 
-export default async function DashboardPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ scope?: string | string[] }>;
-}) {
+// Personal self-reflection dashboard. The Cadence logo routes here for every
+// role — a private "how am I doing" view. Team/org aggregation lives in Insights
+// and the Daily Feed, not here.
+// ponytail: manager/org aggregation removed from this route (the org dashboard is
+// gone); the org picture now lives only on /insights + /feed.
+export default async function DashboardPage() {
   const session = await auth();
   // CXO is an exec observer with no personal work — send to the team Feed.
   if (session!.user.role === "CXO") redirect("/feed");
+
   const today = todayDate();
-  const isManager = session!.user.role === "MANAGER" || session!.user.role === "ADMIN";
+  const userId = session!.user.id;
+  const { workdayHours } = await hourLimits();
 
-  // Audience scope: "team" = only this manager's direct reports (User.managerId
-  // === me, the reporting line); "org" = everyone. Default is role-based — a
-  // manager lands on their own reports, an admin on the whole org. Members never
-  // reach the manager view below, so scope is irrelevant to them.
-  const sp = await searchParams;
-  const rawScope = Array.isArray(sp.scope) ? sp.scope[0] : sp.scope;
-  const scope: "team" | "org" =
-    rawScope === "team" || rawScope === "org"
-      ? rawScope
-      : session!.user.role === "ADMIN"
-        ? "org"
-        : "team";
-  const scopeFilter =
-    scope === "team"
-      ? { id: { in: await descendantUserIds(session!.user.id) } }
-      : {};
+  // Trailing window for the under-planned signal; the 5-week calendar grid is the
+  // widest window, so one query covers both (reflection filters to 14 days).
+  const REFLECT_DAYS = 14;
+  const reflectStart = new Date(today);
+  reflectStart.setUTCDate(reflectStart.getUTCDate() - (REFLECT_DAYS - 1));
+  const gridStart = calendarGridStart(today);
 
-  const settings = await prisma.appSettings.upsert({
-    where: { id: "singleton" },
-    update: {},
-    create: { id: "singleton" },
-  });
-
-  if (!isManager) {
-    const [tasks, overdue] = await Promise.all([
-      prisma.dailyTask.findMany({
-        where: { userId: session!.user.id, date: today },
-        orderBy: { createdAt: "asc" },
-      }),
-      prisma.dailyTask.findMany({
-        where: { userId: session!.user.id, status: { not: "DONE" }, date: { lt: today }, deferredToDate: null },
-        orderBy: { date: "asc" },
-      }),
-    ]);
-
-    return (
-      <DashboardClient
-        isManager={false}
-        todayIso={today.toISOString()}
-        cutoffTime={settings.cutoffTime}
-        myTasks={JSON.parse(JSON.stringify(tasks))}
-        myOverdue={JSON.parse(JSON.stringify(overdue))}
-        members={[]}
-      />
-    );
-  }
-
-  // Discipline window: trailing 14 calendar days (inclusive of today)
-  const windowStart = new Date(today);
-  windowStart.setDate(windowStart.getDate() - 13);
-
-  // "Done today" window: completedAt within today's UTC day. completedAt is a real
-  // timestamp (set when a task goes DONE), so this catches work finished today even
-  // if it was planned for an earlier day — i.e. effort beyond the defined plan.
-  const tomorrow = new Date(today);
-  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-
-  // Manager / Admin: aggregate the team
-  const [users, todayTasks, overdueGroups, historyTasks, doneTodayTasks, pendingTasks] = await Promise.all([
-    prisma.user.findMany({
-      where: { role: "MEMBER", ...scopeFilter },
-      select: { id: true, name: true, email: true, team: { select: { name: true } } },
-      orderBy: [{ name: "asc" }],
+  const [tasks, overdue, recent] = await Promise.all([
+    prisma.dailyTask.findMany({
+      where: { userId, date: today },
+      orderBy: { createdAt: "asc" },
     }),
     prisma.dailyTask.findMany({
-      where: { date: today },
-      select: {
-        id: true, userId: true, title: true, notes: true, status: true, priority: true,
-        estimatedHours: true, actualHours: true,
-        deferredToDate: true, deferralCause: true, deferralNote: true,
-      },
-    }),
-    prisma.dailyTask.groupBy({
-      by: ["userId"],
-      where: { status: { not: "DONE" }, date: { lt: today }, deferredToDate: null },
-      _count: { _all: true },
+      where: { userId, status: { not: "DONE" }, date: { lt: today }, deferredToDate: null },
+      orderBy: { date: "asc" },
     }),
     prisma.dailyTask.findMany({
-      where: { date: { gte: windowStart } },
-      select: { userId: true, date: true, status: true, updatedAt: true },
-    }),
-    prisma.dailyTask.findMany({
-      where: { status: "DONE", completedAt: { gte: today, lt: tomorrow } },
-      select: {
-        id: true, userId: true, title: true, priority: true,
-        estimatedHours: true, actualHours: true, date: true,
-      },
-      orderBy: { completedAt: "asc" },
-    }),
-    // Every still-pending task across the team (any day), excluding deferred
-    // audit rows. This is the backlog a manager can rebalance by reassigning.
-    prisma.dailyTask.findMany({
-      where: { status: { not: "DONE" }, deferredToDate: null, user: { role: "MEMBER", ...scopeFilter } },
-      select: {
-        id: true, userId: true, title: true, status: true, priority: true,
-        estimatedHours: true, date: true,
-      },
-      orderBy: [{ date: "asc" }, { createdAt: "asc" }],
+      where: { userId, date: { gte: gridStart } },
+      select: { date: true, estimatedHours: true, actualHours: true },
     }),
   ]);
 
-  const overdueByUser: Record<string, number> = {};
-  for (const g of overdueGroups) overdueByUser[g.userId] = g._count._all;
-
-  // Discipline: how consistently each person plans + follows through.
-  // Denominator = number of distinct days the team was active, so weekends
-  // and holidays (when nobody plans) never count against anyone.
-  const dateKey = (d: Date) => new Date(d).toISOString().slice(0, 10);
-  const activeDays = new Set(historyTasks.map((t) => dateKey(t.date))).size || 1;
-
-  type Agg = { days: Set<string>; total: number; done: number; lastActive: number };
-  const byUser = new Map<string, Agg>();
-  for (const t of historyTasks) {
-    let e = byUser.get(t.userId);
-    if (!e) {
-      e = { days: new Set(), total: 0, done: 0, lastActive: 0 };
-      byUser.set(t.userId, e);
-    }
-    e.days.add(dateKey(t.date));
-    e.total++;
-    if (t.status === "DONE") e.done++;
-    e.lastActive = Math.max(e.lastActive, new Date(t.updatedAt).getTime());
+  // Under-planned days: weekdays in the 14-day window where you planned SOMETHING
+  // but total estimated effort fell below the 60% floor. Days with nothing planned
+  // are a different signal (skipped planning) and aren't counted here.
+  const floor = minPlanHours(workdayHours);
+  const plannedByDay = new Map<string, number>();
+  for (const t of recent) {
+    if (t.date < reflectStart) continue;
+    const d = new Date(t.date);
+    const wd = d.getUTCDay();
+    if (wd === 0 || wd === 6) continue; // weekends off
+    const key = d.toISOString().slice(0, 10);
+    plannedByDay.set(key, (plannedByDay.get(key) ?? 0) + (t.estimatedHours ?? 0));
   }
+  const underPlannedDays = [...plannedByDay.values()].filter((h) => h > 0 && h < floor).length;
 
-  const members = users.map((u) => {
-    const tasks = todayTasks.filter((t) => t.userId === u.id);
-    // Everything this member marked DONE today. `planned` is true when the task
-    // was on today's plan (date === today); false means it was carried over from
-    // an earlier day and cleared today — work beyond the defined plan.
-    const doneToday = doneTodayTasks
-      .filter((t) => t.userId === u.id)
-      .map((t) => ({
-        id: t.id,
-        title: t.title,
-        priority: t.priority,
-        estimatedHours: t.estimatedHours,
-        actualHours: t.actualHours,
-        planned: new Date(t.date).getTime() === today.getTime(),
-      }));
-    const e = byUser.get(u.id);
-    const daysPlanned = e?.days.size ?? 0;
-    const total = e?.total ?? 0;
-    const done = e?.done ?? 0;
-    const planConsistency = Math.min(1, daysPlanned / activeDays);
-    const completionRate = total ? done / total : 0;
-    const score = Math.round(100 * (0.6 * planConsistency + 0.4 * completionRate));
-    return {
-      id: u.id,
-      name: u.name,
-      email: u.email,
-      team: u.team?.name ?? null,
-      tasks,
-      doneToday,
-      overdue: overdueByUser[u.id] ?? 0,
-      discipline: {
-        score,
-        daysPlanned,
-        activeDays,
-        completionPct: Math.round(completionRate * 100),
-        plannedToday: tasks.length > 0,
-        lastActiveIso: e?.lastActive ? new Date(e.lastActive).toISOString() : null,
-      },
-    };
-  });
+  // Work calendar (worked vs planned per day) — shared with the Profile page.
+  const { calendar, weeks } = buildCalendar(recent, today);
 
   return (
     <DashboardClient
-      isManager={true}
-      scope={scope}
       todayIso={today.toISOString()}
-      cutoffTime={settings.cutoffTime}
-      myTasks={[]}
-      myOverdue={[]}
-      members={JSON.parse(JSON.stringify(members))}
-      pendingTasks={JSON.parse(JSON.stringify(pendingTasks))}
+      myTasks={JSON.parse(JSON.stringify(tasks))}
+      myOverdue={JSON.parse(JSON.stringify(overdue))}
+      reflection={{ underPlannedDays, windowDays: REFLECT_DAYS, floorHours: floor }}
+      calendar={JSON.parse(JSON.stringify(calendar))}
+      weeks={JSON.parse(JSON.stringify(weeks))}
     />
   );
 }

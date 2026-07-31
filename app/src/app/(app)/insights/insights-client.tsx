@@ -8,6 +8,7 @@ import type { RangeKey } from "@/lib/insights-range";
 import { TONE, Stat, BlockedList, CategoryBreakdown, CategoryByPerson, CategoryMatrix, CategoryCycleMatrix, buildCategoryColors } from "./insights-ui";
 import { TimelineSelector } from "./timeline-selector";
 import { ScopeToggle, type Scope } from "@/components/scope-toggle";
+import { TeamFilter } from "@/components/team-filter";
 
 type SortKey = "name" | "discipline" | "drift" | "fire" | "reopens" | "wip";
 
@@ -24,6 +25,8 @@ export function InsightsClient({
   rangeFrom,
   rangeTo,
   scope,
+  teams,
+  teamId,
 }: {
   team: TeamInsights;
   members: MemberInsights[];
@@ -37,6 +40,8 @@ export function InsightsClient({
   rangeFrom: string;
   rangeTo: string;
   scope: Scope;
+  teams: { id: string; name: string }[];
+  teamId: string;
 }) {
   // Shared palette so a category reads the same colour in the team bar and each
   // person's bar below.
@@ -79,7 +84,10 @@ export function InsightsClient({
           </p>
         </div>
         <div className="flex flex-col items-end gap-2">
-          <ScopeToggle current={scope} />
+          <div className="flex items-center gap-2">
+            {teams.length > 0 && <TeamFilter current={teamId} teams={teams} />}
+            <ScopeToggle current={scope} />
+          </div>
           <TimelineSelector current={rangeKey} from={rangeFrom} to={rangeTo} />
         </div>
       </div>

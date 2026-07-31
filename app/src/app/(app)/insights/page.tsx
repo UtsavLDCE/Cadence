@@ -119,7 +119,7 @@ function workingDaysBetween(start: Date, endExclusive: Date): number {
 export default async function InsightsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string | string[]; from?: string | string[]; to?: string | string[]; scope?: string | string[] }>;
+  searchParams: Promise<{ range?: string | string[]; from?: string | string[]; to?: string | string[]; scope?: string | string[]; team?: string | string[] }>;
 }) {
   const session = await auth();
   // CXO gets the team view (an exec observer), never the personal mirror.
@@ -144,9 +144,17 @@ export default async function InsightsPage({
     scope === "team"
       ? { id: { in: await descendantUserIds(session!.user.id) } }
       : {};
+  // Team filter (Dev / DevOps / QA…), orthogonal to scope — AND-ed on top. Only
+  // team-view (manager) audiences get it; absent/invalid = all teams.
+  const teams = isManager
+    ? await prisma.team.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } })
+    : [];
+  const rawTeam = str(sp.team);
+  const teamId = rawTeam && teams.some((t) => t.id === rawTeam) ? rawTeam : "all";
+  const teamFilter = teamId === "all" ? {} : { teamId };
   // CXO users are excluded from analytics as subjects — never counted, whatever
   // the per-user excludedFromInsights flag says.
-  const notExcluded = { excludedFromInsights: false, role: { not: "CXO" as const }, ...scopeFilter };
+  const notExcluded = { excludedFromInsights: false, role: { not: "CXO" as const }, ...scopeFilter, ...teamFilter };
   const range = resolveRange({ range: str(sp.range), from: str(sp.from), to: str(sp.to) }, today);
   const windowStartISO = range.start.toISOString();
   const bucketDays = trendBucketDays(range.days);
@@ -296,6 +304,8 @@ export default async function InsightsPage({
       rangeFrom={range.from}
       rangeTo={range.to}
       scope={scope}
+      teams={teams}
+      teamId={teamId}
     />
   );
 }

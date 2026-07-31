@@ -7,6 +7,8 @@ import { formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { CategorySelect, useCategories, categoryName, type Category } from "@/components/category-select";
 import { ScopeToggle, type Scope } from "@/components/scope-toggle";
+import { WorkCalendar } from "@/components/work-calendar";
+import type { CalCell, WeekPoint } from "@/lib/work-calendar";
 import { TagInput, TagBadges, useTags, type Tag } from "@/components/tag-input";
 import {
   STATUS_META,
@@ -96,28 +98,36 @@ type Member = {
   discipline: Discipline;
 };
 
+// Self-reflection signals for the personal dashboard (what you're missing).
+type Reflection = { underPlannedDays: number; windowDays: number; floorHours: number };
+
 type Props = {
-  isManager: boolean;
+  // Manager/org props are optional and unused by the live /dashboard route (it's
+  // self-only now); kept so ManagerView compiles and can be revived if needed.
+  isManager?: boolean;
   scope?: Scope;
   todayIso: string;
-  cutoffTime: string;
+  cutoffTime?: string;
   myTasks: Task[];
   myOverdue: Task[];
-  members: Member[];
+  members?: Member[];
   pendingTasks?: PendingTask[];
+  reflection?: Reflection;
+  calendar?: CalCell[];
+  weeks?: WeekPoint[];
 };
 
-export function DashboardClient({ isManager, scope = "org", todayIso, cutoffTime, myTasks, myOverdue, members, pendingTasks = [] }: Props) {
+export function DashboardClient({ isManager = false, scope = "org", todayIso, cutoffTime = "", myTasks, myOverdue, members = [], pendingTasks = [], reflection, calendar = [], weeks = [] }: Props) {
   const todayLabel = formatDate(new Date(todayIso));
 
-  if (!isManager) return <MemberView todayLabel={todayLabel} tasks={myTasks} overdue={myOverdue} />;
+  if (!isManager) return <MemberView todayLabel={todayLabel} tasks={myTasks} overdue={myOverdue} reflection={reflection} calendar={calendar} weeks={weeks} />;
 
   return <ManagerView todayLabel={todayLabel} todayIso={todayIso} cutoffTime={cutoffTime} members={members} pendingTasks={pendingTasks} scope={scope} />;
 }
 
 /* ---------------- Member ---------------- */
 
-function MemberView({ todayLabel, tasks, overdue }: { todayLabel: string; tasks: Task[]; overdue: Task[] }) {
+function MemberView({ todayLabel, tasks, overdue, reflection, calendar = [], weeks = [] }: { todayLabel: string; tasks: Task[]; overdue: Task[]; reflection?: Reflection; calendar?: CalCell[]; weeks?: WeekPoint[] }) {
   const counts = countByStatus(tasks);
   const done = counts.DONE;
   const progress = tasks.length ? Math.round((done / tasks.length) * 100) : 0;
@@ -143,8 +153,22 @@ function MemberView({ todayLabel, tasks, overdue }: { todayLabel: string; tasks:
       {overdue.length > 0 && (
         <Link href="/profile" className="flex items-center gap-2 mb-5 bg-primary-soft border border-[#f6cabc] text-primary rounded-xl px-4 py-3 text-sm font-medium hover:opacity-90">
           <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-          {overdue.length} overdue {overdue.length === 1 ? "task" : "tasks"} waiting in your queue →
+          {overdue.length} overdue {overdue.length === 1 ? "task" : "tasks"} piling up in your queue →
         </Link>
+      )}
+
+      {reflection && reflection.underPlannedDays > 0 && (
+        <div className="flex items-start gap-3 mb-5 bg-[#fdf7ec] border border-[#f0e2c4] text-[#a8791f] rounded-xl px-4 py-3 text-sm">
+          <span className="mt-0.5 text-base leading-none">📉</span>
+          <div>
+            <p className="font-semibold">
+              {reflection.underPlannedDays} under-planned {reflection.underPlannedDays === 1 ? "day" : "days"} in the last {reflection.windowDays}.
+            </p>
+            <p className="text-[#c08a2d]">
+              On those weekdays you planned under {fmtHours(reflection.floorHours)} of work — below the 60% floor. Planning your full day gives a truer read on your capacity. <Link href="/standup" className="underline">Plan today →</Link>
+            </p>
+          </div>
+        </div>
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
@@ -180,6 +204,12 @@ function MemberView({ todayLabel, tasks, overdue }: { todayLabel: string; tasks:
           )}
         </Card>
       </div>
+
+      {calendar.length > 0 && (
+        <div className="mt-4">
+          <WorkCalendar calendar={calendar} weeks={weeks} />
+        </div>
+      )}
     </div>
   );
 }

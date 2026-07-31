@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { todayDate } from "@/lib/utils";
 import { INSIGHTS_WINDOW_DAYS, categoryBreakdown } from "@/lib/insights";
+import { buildCalendar, calendarGridStart, CAL_WEEKS, addDays, ymd, round1 } from "@/lib/work-calendar";
 import { ProfileClient } from "./profile-client";
 
 // How many trailing days the "work hours vs planning" chart spans.
@@ -12,11 +13,15 @@ export default async function ProfilePage() {
   const today = todayDate();
   const userId = session!.user.id;
 
+  // Monday starting the trailing 5-week grid. All other windows (14-day stats,
+  // 7-day chart) are derived by filtering the same query.
+  const gridStart = calendarGridStart(today);
+
   const [recent, doneCount, categoryTasks, categoryRows] = await Promise.all([
-    // Recent activity window (last 14 days) for the completion summary and the
-    // daily planned-vs-worked chart (which reads the trailing CHART_DAYS of it).
+    // Activity window covering the calendar grid; the completion summary and the
+    // daily chart read narrower slices of it via date filtering below.
     prisma.dailyTask.findMany({
-      where: { userId, date: { gte: addDays(today, -14) } },
+      where: { userId, date: { gte: gridStart } },
       select: { status: true, date: true, estimatedHours: true, actualHours: true },
     }),
     prisma.dailyTask.count({ where: { userId, status: "DONE" } }),
@@ -42,8 +47,10 @@ export default async function ProfilePage() {
     categoryNames,
   );
 
-  const planned = recent.length;
-  const doneRecent = recent.filter((t) => t.status === "DONE");
+  const cutoff14 = ymd(addDays(today, -13));
+  const recent14 = recent.filter((t) => ymd(t.date) >= cutoff14);
+  const planned = recent14.length;
+  const doneRecent = recent14.filter((t) => t.status === "DONE");
   const completed = doneRecent.length;
   const completionRate = planned ? Math.round((completed / planned) * 100) : 0;
 
@@ -67,10 +74,23 @@ export default async function ProfilePage() {
     });
   }
 
+  // Calendar grid + weekly rollups (shared with the personal Dashboard).
+  const { calendar, weeks } = buildCalendar(recent, today);
+
+  // Self-reflection averages over past (non-future) calendar days.
+  const pastCells = calendar.filter((c) => !c.future);
+  const activeDays = pastCells.filter((c) => c.worked > 0);
+  const totalWorked = pastCells.reduce((s, c) => s + c.worked, 0);
+  const dailyAvg = activeDays.length ? round1(totalWorked / activeDays.length) : 0;
+  const weeklyAvg = weeks.length ? round1(weeks.reduce((s, w) => s + w.worked, 0) / weeks.length) : 0;
+
   return (
     <ProfileClient
       user={{ name: session!.user.name ?? null, email: session!.user.email ?? null, role: session!.user.role }}
       daily={daily}
+      calendar={calendar}
+      weeks={weeks}
+      averages={{ dailyAvg, weeklyAvg, activeDays: activeDays.length }}
       categories={categories}
       stats={{
         completionRate,
@@ -82,20 +102,4 @@ export default async function ProfilePage() {
       }}
     />
   );
-}
-
-function addDays(date: Date, days: number): Date {
-  const d = new Date(date);
-  d.setDate(d.getDate() + days);
-  return d;
-}
-
-// Calendar day (UTC) of a @db.Date value — dates are stored at UTC midnight, so
-// bucket on the UTC day to match how the day was planned.
-function ymd(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
-
-function round1(n: number): number {
-  return Math.round(n * 10) / 10;
 }

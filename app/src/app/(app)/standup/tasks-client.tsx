@@ -292,7 +292,7 @@ export function TasksClient({
     }
     const keptHours = keeping.reduce((s, t) => s + (t.estimatedHours ?? 0), 0);
     if (keptHours < minPlanHours(workdayHours)) {
-      setError(minPlanMsg(workdayHours));
+      setError(`${minPlanMsg(workdayHours)} You're ${fmtHours(minPlanHours(workdayHours) - keptHours)} short — add more before submitting.`);
       return;
     }
     // Catch-up nudge: if yesterday still has unfinished tasks, remind the user to
@@ -931,11 +931,6 @@ export function TasksClient({
                     ⚠️ That&apos;s {fmtHours(overBy)} over a ~{fmtHours(workdayHours)} day. Consider trimming or moving a task before you start.
                   </p>
                 )}
-                {totalEstimate < minPlanHours(workdayHours) && (
-                  <p className="text-sm text-[#c0533a] mt-2">
-                    ⚠️ {minPlanMsg(workdayHours)} You&apos;re {fmtHours(minPlanHours(workdayHours) - totalEstimate)} short — add more before submitting.
-                  </p>
-                )}
                 {goalChecklist}
                 <button
                   type="button"
@@ -945,6 +940,7 @@ export function TasksClient({
                 >
                   {submitting ? "Submitting…" : "Submit & start my day →"}
                 </button>
+                {error && <p className="text-sm text-[#c0533a] mt-2">⚠️ {error}</p>}
               </>
             )}
 

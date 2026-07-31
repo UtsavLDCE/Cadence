@@ -3,6 +3,8 @@
 import { cn } from "@/lib/utils";
 import { fmtHours, planningAccuracy } from "@/lib/task-status";
 import type { CategorySlice } from "@/lib/insights";
+import { WorkCalendar } from "@/components/work-calendar";
+import type { CalCell, WeekPoint } from "@/lib/work-calendar";
 
 type DayPoint = { date: string; planned: number; worked: number };
 
@@ -12,6 +14,9 @@ const CAT_COLORS = ["#3a6ea5", "#6a5acd", "#2f8f83", "#c08a2d", "#d6608a", "#8b5
 type Props = {
   user: { name: string | null; email: string | null; role: string };
   daily: DayPoint[];
+  calendar: CalCell[];
+  weeks: WeekPoint[];
+  averages: { dailyAvg: number; weeklyAvg: number; activeDays: number };
   categories: CategorySlice[];
   stats: {
     completionRate: number;
@@ -23,7 +28,7 @@ type Props = {
   };
 };
 
-export function ProfileClient({ user, daily, categories, stats }: Props) {
+export function ProfileClient({ user, daily, calendar, weeks, averages, categories, stats }: Props) {
   // 14-day planning accuracy — how close estimates ran to actuals on done work.
   const accuracy = planningAccuracy(stats.estDone14, stats.actDone14);
 
@@ -45,10 +50,16 @@ export function ProfileClient({ user, daily, categories, stats }: Props) {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <StatCard label="14-day completion" value={`${stats.completionRate}%`} color="#3f8a5b" />
         <StatCard label="Done all-time" value={String(stats.doneAllTime)} color="#1c1a17" />
+        <StatCard label="Avg / active day" value={fmtHours(averages.dailyAvg)} color="#e0533a" />
+        <StatCard label="Avg / week" value={fmtHours(averages.weeklyAvg)} color="#6a5acd" />
       </div>
+
+      {/* Calendar — worked vs planned per day for self-reflection, plus a weekly
+          worked-hours dashboard underneath. */}
+      <WorkCalendar calendar={calendar} weeks={weeks} />
 
       {/* Daily work hours vs planning — planned (estimate) against worked (actual)
           effort per day over the trailing week, so estimation drift is visible. */}
