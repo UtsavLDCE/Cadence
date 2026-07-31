@@ -7,7 +7,6 @@ import { formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { CategorySelect, useCategories, categoryName, type Category } from "@/components/category-select";
 import { ScopeToggle, type Scope } from "@/components/scope-toggle";
-import { WorkCalendar } from "@/components/work-calendar";
 import type { CalCell, WeekPoint } from "@/lib/work-calendar";
 import { TagInput, TagBadges, useTags, type Tag } from "@/components/tag-input";
 import {
@@ -117,17 +116,17 @@ type Props = {
   weeks?: WeekPoint[];
 };
 
-export function DashboardClient({ isManager = false, scope = "org", todayIso, cutoffTime = "", myTasks, myOverdue, members = [], pendingTasks = [], reflection, calendar = [], weeks = [] }: Props) {
+export function DashboardClient({ isManager = false, scope = "org", todayIso, cutoffTime = "", myTasks, myOverdue, members = [], pendingTasks = [], reflection }: Props) {
   const todayLabel = formatDate(new Date(todayIso));
 
-  if (!isManager) return <MemberView todayLabel={todayLabel} tasks={myTasks} overdue={myOverdue} reflection={reflection} calendar={calendar} weeks={weeks} />;
+  if (!isManager) return <MemberView todayLabel={todayLabel} tasks={myTasks} overdue={myOverdue} reflection={reflection} />;
 
   return <ManagerView todayLabel={todayLabel} todayIso={todayIso} cutoffTime={cutoffTime} members={members} pendingTasks={pendingTasks} scope={scope} />;
 }
 
 /* ---------------- Member ---------------- */
 
-function MemberView({ todayLabel, tasks, overdue, reflection, calendar = [], weeks = [] }: { todayLabel: string; tasks: Task[]; overdue: Task[]; reflection?: Reflection; calendar?: CalCell[]; weeks?: WeekPoint[] }) {
+function MemberView({ todayLabel, tasks, overdue, reflection }: { todayLabel: string; tasks: Task[]; overdue: Task[]; reflection?: Reflection }) {
   const counts = countByStatus(tasks);
   const done = counts.DONE;
   const progress = tasks.length ? Math.round((done / tasks.length) * 100) : 0;
@@ -205,11 +204,6 @@ function MemberView({ todayLabel, tasks, overdue, reflection, calendar = [], wee
         </Card>
       </div>
 
-      {calendar.length > 0 && (
-        <div className="mt-4">
-          <WorkCalendar calendar={calendar} weeks={weeks} />
-        </div>
-      )}
     </div>
   );
 }

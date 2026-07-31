@@ -3,7 +3,6 @@
 import { cn } from "@/lib/utils";
 import { fmtHours, planningAccuracy } from "@/lib/task-status";
 import type { CategorySlice } from "@/lib/insights";
-import { WorkCalendar } from "@/components/work-calendar";
 import type { CalCell, WeekPoint } from "@/lib/work-calendar";
 
 type DayPoint = { date: string; planned: number; worked: number };
@@ -28,7 +27,7 @@ type Props = {
   };
 };
 
-export function ProfileClient({ user, daily, calendar, weeks, averages, categories, stats }: Props) {
+export function ProfileClient({ user, daily, averages, categories, stats }: Props) {
   // 14-day planning accuracy — how close estimates ran to actuals on done work.
   const accuracy = planningAccuracy(stats.estDone14, stats.actDone14);
 
@@ -56,10 +55,6 @@ export function ProfileClient({ user, daily, calendar, weeks, averages, categori
         <StatCard label="Avg / active day" value={fmtHours(averages.dailyAvg)} color="#e0533a" />
         <StatCard label="Avg / week" value={fmtHours(averages.weeklyAvg)} color="#6a5acd" />
       </div>
-
-      {/* Calendar — worked vs planned per day for self-reflection, plus a weekly
-          worked-hours dashboard underneath. */}
-      <WorkCalendar calendar={calendar} weeks={weeks} />
 
       {/* Daily work hours vs planning — planned (estimate) against worked (actual)
           effort per day over the trailing week, so estimation drift is visible. */}
