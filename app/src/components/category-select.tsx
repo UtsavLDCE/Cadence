@@ -9,6 +9,7 @@ export type Category = {
   kind: string | null;
   sortOrder: number;
   isDefault: boolean;
+  repeatable: boolean;
 };
 
 // Shared category state for a page: loads the team-wide vocabulary once and
@@ -47,7 +48,19 @@ export function useCategories() {
     return cat;
   }, []);
 
-  return { categories, createCategory };
+  const updateCategory = useCallback(async (id: string, patch: { isDefault?: boolean; repeatable?: boolean }): Promise<boolean> => {
+    const res = await fetch("/api/categories", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, ...patch }),
+    });
+    if (!res.ok) return false;
+    const cat: Category = await res.json();
+    setCategories((prev) => prev.map((c) => (c.id === cat.id ? cat : c)));
+    return true;
+  }, []);
+
+  return { categories, createCategory, updateCategory };
 }
 
 // Look up a category name by id for read-only display (badges).

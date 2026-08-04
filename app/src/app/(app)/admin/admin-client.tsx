@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { PERMISSION_MATRIX, ROLE_META, type Access, type Role } from "@/lib/permissions";
 import { TagInput, useTags, type Tag } from "@/components/tag-input";
+import { useCategories } from "@/components/category-select";
 
 type User = {
   id: string;
@@ -57,7 +58,7 @@ export function AdminClient({ users, teams, settings, engagement, sprint }: Prop
   const { data: session } = useSession();
   const meId = session?.user?.id;
   const { tags: tagVocab, createTag } = useTags();
-  const [activeTab, setActiveTab] = useState<"users" | "engagement" | "sprint" | "roles" | "teams" | "settings">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "engagement" | "sprint" | "roles" | "teams" | "categories" | "settings">("users");
   const [newTeamName, setNewTeamName] = useState("");
   const [newTeamManagerId, setNewTeamManagerId] = useState("");
   const [cutoffTime, setCutoffTime] = useState(settings.cutoffTime);
@@ -222,6 +223,7 @@ export function AdminClient({ users, teams, settings, engagement, sprint }: Prop
           { key: "sprint", label: "Sprint" },
           { key: "roles", label: "Roles & Permissions" },
           { key: "teams", label: `Teams (${teams.length})` },
+          { key: "categories", label: "Categories" },
           { key: "settings", label: "Settings" },
         ] as const).map((tab) => (
           <button
@@ -505,6 +507,8 @@ export function AdminClient({ users, teams, settings, engagement, sprint }: Prop
           </div>
         </div>
       )}
+
+      {activeTab === "categories" && <CategoriesTab />}
 
       {activeTab === "settings" && (
         <div className="max-w-md">
@@ -895,6 +899,108 @@ function EditUserModal({
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+// Manage the shared, team-wide category vocabulary (Meeting, PR Review, Scrum, …).
+// Categories are global and reused across tasks so the /insights roll-up doesn't
+// fragment on spelling. Any user can also add one inline from a task form; this
+// tab is the deliberate place to seed the recurring set up front.
+function CategoriesTab() {
+  const { categories, createCategory, updateCategory } = useCategories();
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
+    const n = name.trim();
+    if (!n || busy) return;
+    setBusy(true);
+    setError(null);
+    const cat = await createCategory(n);
+    setBusy(false);
+    if (cat) setName("");
+    else setError("Couldn't add that category.");
+  }
+
+  return (
+    <div className="max-w-2xl space-y-4">
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <h2 className="font-semibold text-gray-900 mb-1">Categories</h2>
+        <p className="text-xs text-gray-500 mb-4">
+          Reusable work types applied to tasks — PR Review, Scrum, Meeting, and so on.
+          Shared team-wide; used in the Insights &ldquo;where time goes&rdquo; roll-up.
+        </p>
+        <form onSubmit={add} className="flex gap-3">
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="New category (e.g. PR Review)"
+            maxLength={60}
+            className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+          />
+          <button
+            type="submit"
+            disabled={busy || !name.trim()}
+            className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            {busy ? "Adding…" : "Add"}
+          </button>
+        </form>
+        {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        {categories.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-6">No categories yet.</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">Category ({categories.length})</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600 w-40" title="Seeded/recurring category shown first in pickers.">Default</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600 w-44" title="Recurring work type — its tasks are expected to repeat, so they're checked for daily re-adds.">Repeatable</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {categories.map((c) => (
+                <tr key={c.id}>
+                  <td className="px-4 py-3 font-medium text-gray-900">{c.name}</td>
+                  <td className="px-4 py-3">
+                    <label className="inline-flex items-center gap-2 cursor-pointer select-none" title="Mark this category as default.">
+                      <input
+                        type="checkbox"
+                        checked={c.isDefault}
+                        onChange={(e) => updateCategory(c.id, { isDefault: e.target.checked })}
+                        className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-300"
+                      />
+                      <span className={cn("text-xs font-medium", c.isDefault ? "text-green-700" : "text-gray-400")}>
+                        {c.isDefault ? "Default" : "Custom"}
+                      </span>
+                    </label>
+                  </td>
+                  <td className="px-4 py-3">
+                    <label className="inline-flex items-center gap-2 cursor-pointer select-none" title="Recurring work type — its tasks are checked for daily re-adds.">
+                      <input
+                        type="checkbox"
+                        checked={c.repeatable}
+                        onChange={(e) => updateCategory(c.id, { repeatable: e.target.checked })}
+                        className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-300"
+                      />
+                      <span className={cn("text-xs font-medium", c.repeatable ? "text-indigo-700" : "text-gray-400")}>
+                        {c.repeatable ? "Repeatable" : "One-off"}
+                      </span>
+                    </label>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );

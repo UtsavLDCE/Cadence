@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { normalizeCategoryName } from "@/lib/task-categories";
 
-const categorySelect = { id: true, name: true, kind: true, sortOrder: true, isDefault: true } as const;
+const categorySelect = { id: true, name: true, kind: true, sortOrder: true, isDefault: true, repeatable: true } as const;
 
 // GET /api/categories  -> the team-wide category vocabulary, ordered for display.
 // Any authenticated user: categories are global so everyone shares (and grows) the
@@ -54,4 +54,29 @@ export async function POST(req: NextRequest) {
     select: categorySelect,
   });
   return NextResponse.json(created, { status: 201 });
+}
+
+// PATCH /api/categories  { id, isDefault?, repeatable? }  -> toggle a category's
+// flags. `isDefault` hints provenance (seeded vs. user-added); `repeatable` marks
+// recurring work types for the "same task added again" recurrence check. At least
+// one flag must be given; admins can flip either.
+export async function PATCH(req: NextRequest) {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const body = await req.json().catch(() => ({}));
+  const id = typeof body.id === "string" ? body.id : "";
+  const data: { isDefault?: boolean; repeatable?: boolean } = {};
+  if (typeof body.isDefault === "boolean") data.isDefault = body.isDefault;
+  if (typeof body.repeatable === "boolean") data.repeatable = body.repeatable;
+  if (!id || Object.keys(data).length === 0) {
+    return NextResponse.json({ error: "id and one of isDefault/repeatable are required." }, { status: 400 });
+  }
+
+  const updated = await prisma.taskCategory.update({
+    where: { id },
+    data,
+    select: categorySelect,
+  });
+  return NextResponse.json(updated);
 }
