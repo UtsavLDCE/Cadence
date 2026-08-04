@@ -1,10 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { todayDate } from "@/lib/utils";
+import { todayDate, isPastCutoff } from "@/lib/utils";
 import { minPlanHours, minPlanMsg } from "@/lib/task-status";
 import { hourLimits } from "@/lib/limits";
 import type { Prisma } from "@prisma/client";
+
+// Auto-submit a built-but-unsubmitted plan once the day's cutoff has passed.
+// No cron in this app, so we lock lazily: the next time the owner reads their
+// plan after cutoff, an already-built plan (one that meets the same minimum the
+// manual Submit enforces) is frozen for them. Below-minimum plans are left open.
+async function autoSubmitPastCutoff(
+  plan: { id: string; submittedAt: Date | null } | null,
+  userId: string,
+) {
+  if (!plan || plan.submittedAt) return plan;
+
+  const s = await prisma.appSettings.findUnique({
+    where: { id: "singleton" },
+    select: { cutoffTime: true, timezone: true },
+  });
+  if (!s || !isPastCutoff(s.cutoffTime, s.timezone)) return plan;
+
+  const agg = await prisma.dailyTask.aggregate({
+    where: { userId, date: todayDate(), deferredToDate: null },
+    _sum: { estimatedHours: true },
+  });
+  const { workdayHours } = await hourLimits();
+  if ((agg._sum.estimatedHours ?? 0) < minPlanHours(workdayHours)) return plan;
+
+  return prisma.dayPlan.update({ where: { id: plan.id }, data: { submittedAt: new Date() } });
+}
 
 // GET /api/day-plan -> the caller's plan (goal + submission state) for today.
 export async function GET() {
@@ -14,7 +40,7 @@ export async function GET() {
   const plan = await prisma.dayPlan.findUnique({
     where: { userId_date: { userId: session.user.id, date: todayDate() } },
   });
-  return NextResponse.json(plan);
+  return NextResponse.json(await autoSubmitPastCutoff(plan, session.user.id));
 }
 
 // PATCH /api/day-plan  { goal?: string, submit?: boolean, userId?, date? }
