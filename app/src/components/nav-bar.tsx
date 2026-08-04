@@ -106,6 +106,17 @@ export function NavBar({ user, hasSprint }: { user: User; hasSprint: boolean }) 
             {user.role}
           </span>
           <Link
+            href="/notes"
+            title="Notes"
+            aria-label="Notes"
+            className={cn(
+              "text-[16px] leading-none p-1 inline-flex transition-colors",
+              pathname === "/notes" ? "text-primary" : "text-[#b0a99e] hover:text-[#6b665f]"
+            )}
+          >
+            📝
+          </Link>
+          <Link
             href="/profile"
             title="Profile"
             aria-label="Profile"

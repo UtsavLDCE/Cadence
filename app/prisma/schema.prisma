@@ -78,6 +78,24 @@ model User {
   invitesReceived TaskInvite[] @relation("InvitesReceived")
   sprintItems     SprintItem[]
   tags            Tag[]
+  notes           Note[]
+}
+
+// A personal, free-form dated note. One raw string per entry; the /notes page
+// shows a member's own notes as a single date-grouped feed. Private to the owner.
+model Note {
+  id        String   @id @default(cuid())
+  userId    String
+  // Optional recall name, e.g. "SLA discussion with Lead". Free-form.
+  title     String?  @db.Text
+  body      String   @db.Text
+  // null = plain note (no checkbox). Non-null = todo: false open, true done.
+  done      Boolean?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 model Team {
@@ -220,6 +238,10 @@ model TaskCategory {
   // Seeded default vs. user-added. Lets the UI hint provenance and lets us protect
   // the seeded set from deletion if a delete affordance is added later.
   isDefault   Boolean     @default(false)
+  // Marks recurring work types (Scrum, PR Review, standup) — categories whose
+  // tasks are expected to repeat day to day. Drives the "same task added again"
+  // recurrence check: only tasks in a repeatable category are candidates.
+  repeatable  Boolean     @default(false)
   sortOrder   Int         @default(0)
   createdById String?
   createdAt   DateTime    @default(now())
