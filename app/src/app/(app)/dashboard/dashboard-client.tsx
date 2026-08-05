@@ -412,38 +412,29 @@ function ManagerView({ todayLabel, todayIso, cutoffTime, members, pendingTasks, 
                   <div className="px-4 pb-3 pt-1 border-t border-[#f6f4f1] space-y-3">
                     {m.tasks.length === 0 ? (
                       <p className="text-sm text-[#b0a99e] py-2">No tasks planned today.</p>
-                    ) : (
-                      <div className="space-y-2 pt-2">
-                        {m.tasks.map((t) => (
-                          <div key={t.id}>
-                            <div className="flex items-center gap-3">
-                              <span className={cn("w-2 h-2 rounded-full shrink-0", t.deferredToDate ? "bg-amber-400" : STATUS_META[t.status].dot)} />
-                              <p className={cn("text-sm flex-1 break-words", t.status === "DONE" ? "line-through text-[#b0a99e]" : t.deferredToDate ? "text-[#9c968d]" : "text-[#2c2925]")}>{t.title}</p>
-                              <span className={cn("text-[10px] font-semibold rounded px-1.5 py-0.5 shrink-0", PRIORITY_META[t.priority].badge)}>{PRIORITY_META[t.priority].label}</span>
-                              <span className="text-xs text-[#b0a99e] shrink-0">est {fmtHours(t.estimatedHours)} · act {fmtHours(t.actualHours)}</span>
-                              {t.deferredToDate ? (
-                                <span className="text-xs rounded px-2 py-0.5 shrink-0 bg-[#f8f0dd] text-[#c08a2d] font-medium">
-                                  Deferred → {fmtShortDate(t.deferredToDate)}
-                                </span>
-                              ) : (
-                                <span className={cn("text-xs rounded px-2 py-0.5 shrink-0", STATUS_META[t.status].badge)}>{STATUS_META[t.status].label}</span>
-                              )}
-                            </div>
-                            {t.deferredToDate && (
-                              <p className="ml-5 mt-1 text-xs text-[#c08a2d]">
-                                Reason: {t.deferralCause ? DEFERRAL_CAUSE_META[t.deferralCause].label : "—"}
-                                {t.deferralNote ? ` · ${t.deferralNote}` : ""}
-                              </p>
-                            )}
-                            {t.notes && (
-                              <p className="ml-5 mt-1 text-xs text-[#9c968d] bg-[#f6f4f1] border border-[#f2eee7] rounded-md px-2.5 py-1.5 whitespace-pre-wrap break-words">
-                                {t.notes}
-                              </p>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    ) : (() => {
+                      const liveTasks = m.tasks.filter((t) => !t.deferredToDate);
+                      const deferredTasks = m.tasks.filter((t) => t.deferredToDate);
+                      return (
+                        <div className="space-y-2 pt-2">
+                          {liveTasks.map((t) => (
+                            <MemberTaskRow key={t.id} t={t} />
+                          ))}
+                          {deferredTasks.length > 0 && (
+                            <>
+                              <div className="flex items-center gap-2 pt-2">
+                                <div className="h-px flex-1 bg-[#f0ece5]" />
+                                <span className="text-[10px] font-semibold text-[#c08a2d] uppercase tracking-wide">Deferred · {deferredTasks.length}</span>
+                                <div className="h-px flex-1 bg-[#f0ece5]" />
+                              </div>
+                              {deferredTasks.map((t) => (
+                                <MemberTaskRow key={t.id} t={t} />
+                              ))}
+                            </>
+                          )}
+                        </div>
+                      );
+                    })()}
                     <AssignTaskForm memberId={m.id} memberName={m.name || m.email || "this member"} />
                   </div>
                 )}
@@ -1450,6 +1441,37 @@ function plannedHours(m: Member): number {
   return m.tasks.reduce((s, t) => s + (t.estimatedHours ?? 0), 0);
 }
 
+function MemberTaskRow({ t }: { t: Task }) {
+  return (
+    <div>
+      <div className="flex items-center gap-3">
+        <span className={cn("w-2 h-2 rounded-full shrink-0", t.deferredToDate ? "bg-amber-400" : STATUS_META[t.status].dot)} />
+        <p className={cn("text-sm flex-1 break-words", t.status === "DONE" ? "line-through text-[#b0a99e]" : t.deferredToDate ? "text-[#9c968d]" : "text-[#2c2925]")}>{t.title}</p>
+        <span className={cn("text-[10px] font-semibold rounded px-1.5 py-0.5 shrink-0", PRIORITY_META[t.priority].badge)}>{PRIORITY_META[t.priority].label}</span>
+        <span className="text-xs text-[#b0a99e] shrink-0">est {fmtHours(t.estimatedHours)} · act {fmtHours(t.actualHours)}</span>
+        {t.deferredToDate ? (
+          <span className="text-xs rounded px-2 py-0.5 shrink-0 bg-[#f8f0dd] text-[#c08a2d] font-medium">
+            Deferred → {fmtShortDate(t.deferredToDate)}
+          </span>
+        ) : (
+          <span className={cn("text-xs rounded px-2 py-0.5 shrink-0", STATUS_META[t.status].badge)}>{STATUS_META[t.status].label}</span>
+        )}
+      </div>
+      {t.deferredToDate && (
+        <p className="ml-5 mt-1 text-xs text-[#c08a2d]">
+          Reason: {t.deferralCause ? DEFERRAL_CAUSE_META[t.deferralCause].label : "—"}
+          {t.deferralNote ? ` · ${t.deferralNote}` : ""}
+        </p>
+      )}
+      {t.notes && (
+        <p className="ml-5 mt-1 text-xs text-[#9c968d] bg-[#f6f4f1] border border-[#f2eee7] rounded-md px-2.5 py-1.5 whitespace-pre-wrap break-words">
+          {t.notes}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function deferredCount(m: Member): number {
   return m.tasks.filter((t) => t.deferredToDate).length;
 }
@@ -1672,7 +1694,7 @@ function AssignTaskForm({ memberId, memberName }: { memberId: string; memberName
 /* ---------------- Shared primitives ---------------- */
 
 function countByStatus(tasks: Task[]): Record<TaskStatus, number> {
-  const c: Record<TaskStatus, number> = { TODO: 0, IN_PROGRESS: 0, HOLD: 0, DONE: 0 };
+  const c: Record<TaskStatus, number> = { TODO: 0, IN_PROGRESS: 0, HOLD: 0, DONE: 0, NOT_WORKED: 0 };
   for (const t of tasks) c[t.status]++;
   return c;
 }

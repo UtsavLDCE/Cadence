@@ -34,7 +34,7 @@ export default async function DashboardPage() {
       orderBy: { createdAt: "asc" },
     }),
     prisma.dailyTask.findMany({
-      where: { userId, status: { not: "DONE" }, date: { lt: today }, deferredToDate: null },
+      where: { userId, status: { notIn: ["DONE", "NOT_WORKED"] }, date: { lt: today }, deferredToDate: null },
       orderBy: { date: "asc" },
     }),
     prisma.dailyTask.findMany({

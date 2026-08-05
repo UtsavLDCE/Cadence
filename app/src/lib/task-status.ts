@@ -6,9 +6,9 @@ export const MAX_TASK_HOURS = 4;
 export const chunkMsg = (max: number = MAX_TASK_HOURS) =>
   `Chunk/divide your work into smaller chunks — max ${fmtHours(max)} per task.`;
 
-export type TaskStatus = "TODO" | "IN_PROGRESS" | "HOLD" | "DONE";
+export type TaskStatus = "TODO" | "IN_PROGRESS" | "HOLD" | "DONE" | "NOT_WORKED";
 
-export const TASK_STATUSES: TaskStatus[] = ["TODO", "IN_PROGRESS", "HOLD", "DONE"];
+export const TASK_STATUSES: TaskStatus[] = ["TODO", "IN_PROGRESS", "HOLD", "DONE", "NOT_WORKED"];
 
 export const STATUS_META: Record<
   TaskStatus,
@@ -37,6 +37,12 @@ export const STATUS_META: Record<
     badge: "bg-[#e9f4ec] text-[#3f8a5b]",
     dot: "bg-[#3f8a5b]",
     hex: "#3f8a5b",
+  },
+  NOT_WORKED: {
+    label: "Not Worked",
+    badge: "bg-[#fbe4de] text-[#9c4221]",
+    dot: "bg-[#9c4221]",
+    hex: "#9c4221",
   },
 };
 

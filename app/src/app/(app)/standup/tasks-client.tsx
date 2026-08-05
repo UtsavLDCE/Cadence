@@ -295,16 +295,9 @@ export function TasksClient({
       setError(`${minPlanMsg(workdayHours)} You're ${fmtHours(minPlanHours(workdayHours) - keptHours)} short — add more before submitting.`);
       return;
     }
-    // Catch-up nudge: if yesterday still has unfinished tasks, remind the user to
-    // close them out (mark done / defer in "My queue") before locking today.
-    // Soft and skippable — they can proceed regardless.
-    const yesterdayPending = overdue.filter((t) => t.date.slice(0, 10) === yesterdayStr).length;
-    if (yesterdayPending > 0) {
-      const ok = window.confirm(
-        `You have ${yesterdayPending} unfinished ${yesterdayPending === 1 ? "task" : "tasks"} from yesterday. ` +
-          `You can mark ${yesterdayPending === 1 ? "it" : "them"} done or defer in "My queue" first. Submit today's goal anyway?`,
-      );
-      if (!ok) return;
+    if (overdue.length > 0) {
+      setError(`You have ${overdue.length} unresolved ${overdue.length === 1 ? "task" : "tasks"} from previous days. Mark each as Done or Not Worked in "My queue" before submitting.`);
+      return;
     }
     const confirmMsg = toQueue.length
       ? `Submit today's goal? ${toQueue.length} unchecked ${toQueue.length === 1 ? "task moves" : "tasks move"} to your queue, and the rest are locked for the day — you can still update status, effort, and notes, or move a task to another day.`
@@ -721,6 +714,20 @@ export function TasksClient({
     if (typeof done.date === "string" && done.date.slice(0, 10) === todayStr) {
       setTasks((prev) => [...prev, done]);
     }
+  }
+
+  async function markNotWorked(id: string) {
+    const res = await fetch(`/api/tasks/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "NOT_WORKED" }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      setError(d.error || "Couldn't mark this task.");
+      return;
+    }
+    setOverdue((prev) => prev.filter((t) => t.id !== id));
   }
 
   // Complete a backlog item directly: the server creates a DONE task dated the day
@@ -1255,6 +1262,7 @@ export function TasksClient({
         onCarry={carry}
         onPatchOverdue={patchOverdue}
         onCompleteOverdue={completeOverdue}
+        onNotWorkedOverdue={markNotWorked}
         onCompleteQueue={completeQueue}
         locked={submitted}
         yesterdayStr={yesterdayStr}
@@ -1764,6 +1772,7 @@ function OverdueRow({
   onCarry,
   onPatch,
   onComplete,
+  onNotWorked,
   daysLate,
   locked,
   yesterdayStr,
@@ -1773,6 +1782,7 @@ function OverdueRow({
   onCarry: (id: string) => Promise<void>;
   onPatch: (id: string, body: Partial<Task>) => void;
   onComplete: (id: string, completedDate: string, hours: number | null) => Promise<void>;
+  onNotWorked: (id: string) => Promise<void>;
   daysLate: number;
   locked: boolean;
   yesterdayStr: string;
@@ -1881,6 +1891,14 @@ function OverdueRow({
         >
           ✓ Done
         </button>
+        <button
+          type="button"
+          onClick={() => onNotWorked(t.id)}
+          className="border border-[#f0d6c8] text-[#9c4221] hover:bg-[#fdf0ea] font-medium text-xs px-3 py-1.5 rounded-lg transition-colors shrink-0"
+          title="Mark as not worked — planned but not executed"
+        >
+          ✗ Not Worked
+        </button>
         {!locked && (
           <button
             type="button"
@@ -1923,6 +1941,7 @@ function QueueSection({
   onCarry,
   onPatchOverdue,
   onCompleteOverdue,
+  onNotWorkedOverdue,
   onCompleteQueue,
   locked,
   yesterdayStr,
@@ -1938,6 +1957,7 @@ function QueueSection({
   onCarry: (id: string) => Promise<void>;
   onPatchOverdue: (id: string, body: Partial<Task>) => void;
   onCompleteOverdue: (id: string, completedDate: string, hours: number | null) => Promise<void>;
+  onNotWorkedOverdue: (id: string) => Promise<void>;
   onCompleteQueue: (id: string, completedDate: string, hours: number | null) => Promise<void>;
   locked: boolean;
   yesterdayStr: string;
@@ -2056,6 +2076,7 @@ function QueueSection({
                 onCarry={onCarry}
                 onPatch={onPatchOverdue}
                 onComplete={onCompleteOverdue}
+                onNotWorked={onNotWorkedOverdue}
                 daysLate={overdueDaysLate(e.task.date)}
                 locked={locked}
                 yesterdayStr={yesterdayStr}
@@ -2672,9 +2693,9 @@ function TaskRow({
           ))}
         </select>
 
-        {/* Status segmented control */}
+        {/* Status segmented control — NOT_WORKED only applies to past tasks, not today's */}
         <div className="flex rounded-lg border border-[#ece8e1] overflow-hidden shrink-0">
-          {TASK_STATUSES.map((s) => {
+          {TASK_STATUSES.filter((s) => s !== "NOT_WORKED").map((s) => {
             const active = task.status === s;
             const meta = STATUS_META[s];
             return (

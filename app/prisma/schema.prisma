@@ -448,6 +448,7 @@ enum TaskStatus {
   IN_PROGRESS
   HOLD
   DONE
+  NOT_WORKED
 }
 
 // Planning priority. Carries from a queue item into the day task when promoted,

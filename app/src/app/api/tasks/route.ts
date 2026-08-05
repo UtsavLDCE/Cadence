@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
     // Exclude tasks already deferred forward — they live on as a copy on their
     // new day, so counting the marked original too would double-count.
     const tasks = await prisma.dailyTask.findMany({
-      where: { userId, status: { not: "DONE" }, date: { lt: todayDate() }, deferredToDate: null },
+      where: { userId, status: { notIn: ["DONE", "NOT_WORKED"] }, date: { lt: todayDate() }, deferredToDate: null },
       orderBy: { date: "asc" },
       include: TAGS_INCLUDE,
     });

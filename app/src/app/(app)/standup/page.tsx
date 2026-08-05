@@ -23,7 +23,7 @@ export default async function MyDayPage() {
       },
     }),
     prisma.dailyTask.findMany({
-      where: { userId: session!.user.id, status: { not: "DONE" }, date: { lt: today }, deferredToDate: null },
+      where: { userId: session!.user.id, status: { notIn: ["DONE", "NOT_WORKED"] }, date: { lt: today }, deferredToDate: null },
       orderBy: { date: "asc" },
       include: { ...TAGS_INCLUDE, ...WORKLOG_INCLUDE },
     }),

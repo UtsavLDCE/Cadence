@@ -9,7 +9,7 @@ import { recordStatusChange } from "@/lib/task-events";
 import { resolveCategoryId } from "@/lib/task-categories";
 import { resolveTagIds, tagsSetInput, TAGS_INCLUDE } from "@/lib/task-tags";
 
-const STATUSES = ["TODO", "IN_PROGRESS", "HOLD", "DONE"] as const;
+const STATUSES = ["TODO", "IN_PROGRESS", "HOLD", "DONE", "NOT_WORKED"] as const;
 const DEFERRAL_CAUSES = ["INTERRUPTED", "UNDERESTIMATED", "BLOCKED", "DEPRIORITIZED", "OTHER"] as const;
 
 function parseCause(value: unknown): DeferralCause | null {
