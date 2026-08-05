@@ -4,6 +4,7 @@ import { todayDate, formatDate } from "@/lib/utils";
 import { fmtHours, minPlanHours, STATUS_META, PRIORITY_META, type TaskStatus, type Priority } from "@/lib/task-status";
 import { descendantUserIds } from "@/lib/org";
 import { hourLimits } from "@/lib/limits";
+import { FeedSearch } from "./feed-search";
 
 // Daily Feed — visible to everyone. Scope is self + direct reports (anyone whose
 // managerId is you); admin sees the whole org. One date, every in-scope user in
@@ -234,6 +235,10 @@ export default async function FeedPage({
         </div>
       )}
 
+      <div className="flex items-center gap-3 mb-3">
+        <FeedSearch />
+      </div>
+
       <div className="space-y-3">
         {rows.map((r) => (
           <MemberCard key={r.user.id} row={r} workday={workdayHours} minPlan={minPlan} />
@@ -284,7 +289,7 @@ function MemberCard({
   const planTag = overplanned ? " over" : underplanned ? " low" : "";
 
   return (
-    <div className="bg-white rounded-xl border border-[#ece8e1] p-5">
+    <div data-feed-name={name.toLowerCase()} className="bg-white rounded-xl border border-[#ece8e1] p-5">
       {/* Header: name · role · plan/standup status pills */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-2.5">
