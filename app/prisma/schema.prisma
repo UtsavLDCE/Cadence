@@ -71,6 +71,7 @@ model User {
   interruptions Interruption[]
   dailyTasks    DailyTask[]    @relation("TaskOwner")
   assignedTasks DailyTask[]    @relation("TaskAssigner")
+  blockingTasks DailyTask[]    @relation("TaskBlocker")
   workLogs      WorkLog[]
   queueItems    QueueItem[]
   dayPlans      DayPlan[]
@@ -79,6 +80,7 @@ model User {
   sprintItems     SprintItem[]
   tags            Tag[]
   notes           Note[]
+  recurringTasks  RecurringTask[]
 }
 
 // A personal, free-form dated note. One raw string per entry; the /notes page
@@ -189,6 +191,19 @@ model DailyTask {
   assignedById String?
   assignedBy   User?             @relation("TaskAssigner", fields: [assignedById], references: [id], onDelete: SetNull)
 
+  // Cross-person dependency: this task can't move until `blockedOnUser` finishes
+  // their part. Set while planning the day (or later); the blocked-on person sees
+  // every open task waiting on them in a "Waiting on you" list on their My Day,
+  // so they can prioritize accordingly. Cleared manually or moot once the task
+  // is DONE/NOT_WORKED (the list only shows open tasks). SetNull on delete so
+  // removing the blocker user never orphans the task.
+  blockedOnUserId String?
+  blockedOnUser   User?           @relation("TaskBlocker", fields: [blockedOnUserId], references: [id], onDelete: SetNull)
+  // Free-text remark on the dependency — *what* is being waited on (e.g. "API
+  // contract review"), shown alongside the who in both the badge and the
+  // blocked-on person's "Waiting on you" list. Cleared with the blocker.
+  blockedOnNote   String?
+
   user         User              @relation("TaskOwner", fields: [userId], references: [id], onDelete: Cascade)
   statusEvents TaskStatusEvent[]
   // Dated time-entries for work spent on this task. A task can accumulate effort
@@ -206,6 +221,7 @@ model DailyTask {
   @@index([userId, date])
   @@index([userId, status])
   @@index([categoryId])
+  @@index([blockedOnUserId, status])
 }
 
 // Free-form, user-extensible labels applied to tasks. Many-to-many with DailyTask:
@@ -246,7 +262,8 @@ model TaskCategory {
   createdById String?
   createdAt   DateTime    @default(now())
 
-  tasks DailyTask[]
+  tasks          DailyTask[]
+  recurringTasks RecurringTask[]
 
   @@index([sortOrder])
 }
@@ -423,6 +440,28 @@ model SprintItem {
   @@unique([version, externalId])
   @@index([userId])
   @@index([version])
+}
+
+// A recurring task template: auto-seeds onto the user's day when they open it
+// and no matching task exists yet. daysOfWeek is a 7-bit mask (bit 0 = Sunday,
+// bit 6 = Saturday) stored as an integer, so "weekdays" = 0b0111110 = 62.
+model RecurringTask {
+  id             String    @id @default(cuid())
+  userId         String
+  title          String    @db.Text
+  estimatedHours Float
+  priority       Priority  @default(MEDIUM)
+  categoryId     String?
+  active         Boolean   @default(true)
+  // Bitmask: bit 0 = Sun, 1 = Mon, … 6 = Sat. 62 = weekdays, 127 = every day.
+  daysOfWeek     Int       @default(62)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category TaskCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([userId, active])
 }
 
 enum UserRole {

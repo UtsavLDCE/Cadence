@@ -65,6 +65,24 @@ type Task = {
   // Set when a manager/admin dropped this task onto the member's day. Drives the
   // "From <lead>" provenance badge so the member sees work handed to them.
   assignedBy?: { name: string | null; email: string | null } | null;
+  // Cross-person dependency: this task waits on that user's part. Drives the
+  // "Blocked on X" badge here and the "Waiting on you" list on their My Day.
+  blockedOnUserId?: string | null;
+  blockedOnUser?: { name: string | null; email: string | null } | null;
+  // Remark on the dependency — what exactly is being waited on.
+  blockedOnNote?: string | null;
+};
+
+// A teammate's open task that's blocked on the viewer — shown in the "Waiting on
+// you" sidebar list so the viewer can plan their day around who they're holding up.
+type WaitingTask = {
+  id: string;
+  title: string;
+  date: string;
+  priority: Priority;
+  status: TaskStatus;
+  blockedOnNote: string | null;
+  user: { name: string | null; email: string | null };
 };
 
 // A shared-work recipient shown on the task row: yellow while PENDING, green
@@ -130,6 +148,7 @@ export function TasksClient({
   isAdmin,
   isManager,
   unsubmittedTeammates,
+  waitingOnYou,
   maxTaskHours,
   workdayHours,
 }: {
@@ -145,6 +164,8 @@ export function TasksClient({
   isManager: boolean;
   // Same-team peers who haven't submitted today's plan yet — a caution nudge.
   unsubmittedTeammates: string[];
+  // Teammates' open tasks blocked on me — surfaced so I prioritize accordingly.
+  waitingOnYou: WaitingTask[];
   // Admin-configurable caps (AppSettings). maxTaskHours = per-task hard cap;
   // workdayHours = single-day capacity driving the over-plan + min-plan hints.
   maxTaskHours: number;
@@ -158,6 +179,14 @@ export function TasksClient({
   const [priority, setPriority] = useState<Priority>("MEDIUM");
   const [category, setCategory] = useState<string | null>(null);
   const [newTags, setNewTags] = useState<Tag[]>([]);
+  // Who the new task is blocked on (single person). Optional.
+  const [newBlockedOn, setNewBlockedOn] = useState<Person | null>(null);
+  // Optional remark: what exactly the task is waiting on.
+  const [newBlockedNote, setNewBlockedNote] = useState("");
+  // Blocker picker is hidden behind a yes/no question; only opens on demand.
+  const [blockedAsk, setBlockedAsk] = useState(false);
+  // Inline "+ Plan today" on a Waiting-on-you card: which card is open + its estimate.
+  const [planWait, setPlanWait] = useState<{ id: string; est: string } | null>(null);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -491,7 +520,7 @@ export function TasksClient({
     const res = await fetch("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: t, estimatedHours: est, priority, categoryId: category, tagIds: newTags.map((tag) => tag.id) }),
+      body: JSON.stringify({ title: t, estimatedHours: est, priority, categoryId: category, tagIds: newTags.map((tag) => tag.id), blockedOnUserId: newBlockedOn?.id ?? null, blockedOnNote: newBlockedNote.trim() || null }),
     });
     if (res.ok) {
       const created = await res.json();
@@ -501,6 +530,42 @@ export function TasksClient({
       setPriority("MEDIUM");
       setCategory(null);
       setNewTags([]);
+      setNewBlockedOn(null);
+      setNewBlockedNote("");
+      setBlockedAsk(false);
+    } else {
+      const d = await res.json().catch(() => ({}));
+      setError(d.error || "Failed to add task.");
+    }
+    setAdding(false);
+  }
+
+  // "+ Plan today" on a Waiting-on-you card: adds my own task for the unblock
+  // work, inheriting the teammate's priority, so it counts in today's plan.
+  async function planWaiting(w: WaitingTask) {
+    const est = Number(planWait?.est);
+    if (!planWait || !Number.isFinite(est) || est <= 0) return;
+    if (est > maxTaskHours) {
+      setError(chunkMsg(maxTaskHours));
+      return;
+    }
+    setAdding(true);
+    setError(null);
+    const res = await fetch("/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: `Unblock ${w.user.name || w.user.email || "teammate"}: ${w.title}`,
+        estimatedHours: est,
+        priority: w.priority,
+        categoryId: null,
+        tagIds: [],
+      }),
+    });
+    if (res.ok) {
+      const created = await res.json();
+      setTasks((prev) => [...prev, created]);
+      setPlanWait(null);
     } else {
       const d = await res.json().catch(() => ({}));
       setError(d.error || "Failed to add task.");
@@ -1042,58 +1107,98 @@ export function TasksClient({
 
       {/* Add task — set the morning plan (hidden once the plan is locked) */}
       {!submitted && (
-      <form onSubmit={addTask} className="bg-white rounded-xl border border-[#ece8e1] p-4 flex flex-col sm:flex-row gap-3">
+      <form onSubmit={addTask} className="bg-white rounded-xl border border-[#ece8e1] p-4 flex flex-col gap-3">
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="What will you work on today?"
-          className="flex-1 border border-[#ece8e1] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
+          className="border border-[#ece8e1] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
         />
-        <select
-          value={priority}
-          onChange={(e) => setPriority(e.target.value as Priority)}
-          title="Priority"
-          className="border border-[#ece8e1] rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
-        >
-          {PRIORITIES.map((p) => (
-            <option key={p} value={p}>{PRIORITY_META[p].label}</option>
-          ))}
-        </select>
-        <CategorySelect
-          categories={categories}
-          value={category}
-          onChange={setCategory}
-          onCreate={createCategory}
-          className="sm:w-44"
-        />
-        <TagInput
-          value={newTags}
-          onChange={setNewTags}
-          suggestions={allTags}
-          onCreate={createTag}
-          className="sm:w-48"
-        />
-        <div className="flex items-center gap-1">
-          <input
-            type="number"
-            min="0.1667"
-            step="any"
-            required
-            value={estimate}
-            onChange={(e) => setEstimate(e.target.value)}
-            placeholder="Est.*"
-            title="An effort estimate is required"
-            className="w-20 border border-[#ece8e1] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
+        <div className="flex flex-col sm:flex-row gap-3">
+          <select
+            value={priority}
+            onChange={(e) => setPriority(e.target.value as Priority)}
+            title="Priority"
+            className="border border-[#ece8e1] rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
+          >
+            {PRIORITIES.map((p) => (
+              <option key={p} value={p}>{PRIORITY_META[p].label}</option>
+            ))}
+          </select>
+          <CategorySelect
+            categories={categories}
+            value={category}
+            onChange={setCategory}
+            onCreate={createCategory}
+            className="sm:w-44"
           />
-          <span className="text-sm text-[#b0a99e]">h</span>
+          <TagInput
+            value={newTags}
+            onChange={setNewTags}
+            suggestions={allTags}
+            onCreate={createTag}
+            className="sm:flex-1"
+          />
+          <div className="flex items-center gap-1">
+            <input
+              type="number"
+              min="0.1667"
+              step="any"
+              required
+              value={estimate}
+              onChange={(e) => setEstimate(e.target.value)}
+              placeholder="Est.*"
+              title="An effort estimate is required"
+              className="w-20 border border-[#ece8e1] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
+            />
+            <span className="text-sm text-[#b0a99e]">h</span>
+          </div>
         </div>
-        <button
-          type="submit"
-          disabled={adding || !title.trim() || estimate === "" || Number(estimate) <= 0}
-          className="bg-primary hover:bg-primary-hover disabled:opacity-50 text-white font-medium text-sm px-5 py-2 rounded-lg transition-colors"
-        >
-          {adding ? "Adding…" : "Add task"}
-        </button>
+        {/* Blocked-on is opt-in: a yes/no question, and the people picker only
+            appears once answered yes — keeps the common case one field lighter. */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+          {!blockedAsk && !newBlockedOn ? (
+            <button
+              type="button"
+              onClick={() => setBlockedAsk(true)}
+              className="self-start text-xs font-medium text-[#9c968d] hover:text-primary border border-dashed border-[#ddd8d0] hover:border-primary rounded-lg px-3 py-1.5 transition-colors"
+            >
+              ⏳ Is this blocked on someone?
+            </button>
+          ) : (
+            <>
+              <span className="text-xs font-medium text-[#6b665f] shrink-0">Blocked on</span>
+              <PeoplePicker
+                value={newBlockedOn ? [newBlockedOn] : []}
+                onChange={(next) => setNewBlockedOn(next.length ? next[next.length - 1] : null)}
+                options={people}
+                placeholder="Who are you waiting on?"
+                className="sm:w-64"
+              />
+              <input
+                value={newBlockedNote}
+                onChange={(e) => setNewBlockedNote(e.target.value)}
+                placeholder="Blocked on what? (optional)"
+                maxLength={500}
+                className="sm:flex-1 border border-[#ece8e1] rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
+              />
+              <button
+                type="button"
+                onClick={() => { setBlockedAsk(false); setNewBlockedOn(null); setNewBlockedNote(""); }}
+                className="self-start sm:self-auto text-xs text-[#b0a99e] hover:text-[#6b665f]"
+              >
+                Not blocked
+              </button>
+            </>
+          )}
+          <button
+            type="submit"
+            disabled={adding || !title.trim() || estimate === "" || Number(estimate) <= 0}
+            className="sm:ml-auto bg-primary hover:bg-primary-hover disabled:opacity-50 text-white font-medium text-sm px-5 py-2 rounded-lg transition-colors"
+          >
+            {adding ? "Adding…" : "Add task"}
+          </button>
+        </div>
       </form>
       )}
 
@@ -1208,6 +1313,80 @@ export function TasksClient({
 
         {/* Supporting sidebar — context that feeds the plan without competing with it. */}
         <aside className="flex flex-col gap-4 lg:sticky lg:top-[74px]">
+          {/* Waiting on you — teammates' open tasks blocked on me. Shown first so
+              it feeds today's prioritization: finish what others are stuck on. */}
+          {waitingOnYou.length > 0 && (
+            <div className="bg-white rounded-2xl border border-rose-200 p-[18px]">
+              <div className="text-[13px] font-semibold text-[#1c1a17] mb-1">
+                ⏳ Waiting on you · {waitingOnYou.length}
+              </div>
+              <p className="text-xs text-[#9c968d] mb-3">
+                Teammates blocked until you finish your part — factor these into today&apos;s plan.
+              </p>
+              <div className="flex flex-col gap-2">
+                {waitingOnYou.map((w) => (
+                  <div key={w.id} className="border border-[#f2eee7] rounded-lg px-2.5 py-2">
+                    <p className="text-xs font-medium text-[#1c1a17] break-words">{w.title}</p>
+                    {w.blockedOnNote && (
+                      <p className="text-[11px] text-rose-600 mt-0.5 break-words">↳ {w.blockedOnNote}</p>
+                    )}
+                    <p className="text-[11px] text-[#9c968d] mt-0.5 flex items-center gap-1.5 flex-wrap">
+                      <span className="font-medium text-rose-700">
+                        {w.user.name || w.user.email || "Someone"}
+                      </span>
+                      <span className={cn("text-[10px] font-semibold rounded px-1.5 py-0.5", PRIORITY_META[w.priority].badge)}>
+                        {PRIORITY_META[w.priority].label}
+                      </span>
+                      <span>{w.date.slice(0, 10) === todayStr ? "today" : `since ${w.date.slice(0, 10)}`}</span>
+                    </p>
+                    {/* Plan the unblock work onto my own day — needs an estimate,
+                        like any planned task. Hidden once today's plan is locked. */}
+                    {!submitted && (
+                      planWait?.id === w.id ? (
+                        <div className="flex items-center gap-1.5 mt-1.5">
+                          <input
+                            autoFocus
+                            type="number"
+                            min="0.1667"
+                            step="any"
+                            value={planWait.est}
+                            onChange={(e) => setPlanWait({ id: w.id, est: e.target.value })}
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void planWaiting(w); } }}
+                            placeholder="Est. h"
+                            className="w-16 border border-[#ece8e1] rounded px-2 py-1 text-[11px] focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
+                          />
+                          <button
+                            type="button"
+                            disabled={adding || !(Number(planWait.est) > 0)}
+                            onClick={() => planWaiting(w)}
+                            className="text-[11px] font-medium text-white bg-primary hover:bg-primary-hover disabled:opacity-50 rounded px-2 py-1 transition-colors"
+                          >
+                            Add
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPlanWait(null)}
+                            className="text-[11px] text-[#b0a99e] hover:text-[#6b665f]"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setPlanWait({ id: w.id, est: "" })}
+                          className="mt-1.5 text-[11px] font-medium text-rose-700 hover:text-rose-900"
+                        >
+                          + Plan today
+                        </button>
+                      )
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Today at a glance — the day's headline numbers */}
           <div className="bg-white rounded-2xl border border-[#ece8e1] p-[18px]">
             <div className="text-[13px] font-semibold text-[#1c1a17] mb-3.5">Today at a glance</div>
@@ -1269,6 +1448,7 @@ export function TasksClient({
         todayStr={todayStr}
         maxTaskHours={maxTaskHours}
       />
+      <RecurringSection categories={categories} onCreateCategory={createCategory} maxTaskHours={maxTaskHours} />
         </aside>
       </div>
 
@@ -2498,6 +2678,8 @@ function TaskRow({
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(task.title);
   const [actual, setActual] = useState(task.actualHours?.toString() ?? "");
+  const [editingEst, setEditingEst] = useState(false);
+  const [estDraft, setEstDraft] = useState(task.estimatedHours?.toString() ?? "");
   const [notes, setNotes] = useState(task.notes ?? "");
   const [notesOpen, setNotesOpen] = useState(Boolean(task.notes));
   const [moveOpen, setMoveOpen] = useState(false);
@@ -2544,6 +2726,13 @@ function TaskRow({
   function cancelTitle() {
     setTitleDraft(task.title);
     setEditingTitle(false);
+  }
+
+  function saveEst() {
+    setEditingEst(false);
+    const n = parseFloat(estDraft);
+    if (!Number.isFinite(n) || n <= 0) { setEstDraft(task.estimatedHours?.toString() ?? ""); return; }
+    if (n !== task.estimatedHours) onPatch(task.id, { estimatedHours: n });
   }
 
   // A deferred original is an immutable record of what was planned but slipped —
@@ -2665,9 +2854,55 @@ function TaskRow({
                 From {task.assignedBy.name || task.assignedBy.email || "lead"}
               </span>
             )}
+            {task.blockedOnUser && (
+              <span
+                className="inline-flex items-center gap-1 text-[10px] font-semibold rounded px-1.5 py-0.5 shrink-0 bg-rose-100 text-rose-700"
+                title={`Waiting on ${task.blockedOnUser.name || task.blockedOnUser.email || "a teammate"}${task.blockedOnNote ? ` — ${task.blockedOnNote}` : ""} — they see this in their "Waiting on you" list`}
+              >
+                ⏳ Blocked on {task.blockedOnUser.name || task.blockedOnUser.email || "someone"}
+                {task.blockedOnNote && <span className="font-normal text-rose-500">· {task.blockedOnNote}</span>}
+                {!done && (
+                  <button
+                    type="button"
+                    onClick={() => onPatch(task.id, { blockedOnUserId: null, blockedOnUser: null, blockedOnNote: null })}
+                    title="No longer blocked"
+                    className="text-rose-400 hover:text-rose-700 leading-none"
+                  >
+                    ✕
+                  </button>
+                )}
+              </span>
+            )}
           </div>
           <p className="text-xs text-[#b0a99e] mt-0.5">
-            Est. {fmtHours(task.estimatedHours)}
+            {!submitted && editingEst ? (
+              <span className="inline-flex items-center gap-1">
+                Est.{" "}
+                <input
+                  autoFocus
+                  type="number"
+                  step="0.25"
+                  min="0.25"
+                  value={estDraft}
+                  onChange={(e) => setEstDraft(e.target.value)}
+                  onBlur={saveEst}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { e.preventDefault(); saveEst(); }
+                    if (e.key === "Escape") { e.preventDefault(); setEditingEst(false); setEstDraft(task.estimatedHours?.toString() ?? ""); }
+                  }}
+                  className="w-14 text-xs border border-[#ece8e1] rounded px-1.5 py-0.5 focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
+                />
+                h
+              </span>
+            ) : (
+              <span
+                className={!submitted ? "cursor-pointer hover:text-primary transition-colors" : ""}
+                onClick={() => { if (!submitted) { setEstDraft(task.estimatedHours?.toString() ?? ""); setEditingEst(true); } }}
+                title={!submitted ? "Click to edit estimate" : undefined}
+              >
+                Est. {fmtHours(task.estimatedHours)}
+              </span>
+            )}
             {task.actualHours != null && <> · Actual {fmtHours(task.actualHours)}</>}
           </p>
         </div>
@@ -3008,6 +3243,215 @@ function TaskRow({
         >
           + Add note
         </button>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Recurring Tasks Section ---------- */
+
+const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+type RecurringItem = {
+  id: string;
+  title: string;
+  estimatedHours: number;
+  priority: Priority;
+  categoryId: string | null;
+  category: { id: string; name: string } | null;
+  active: boolean;
+  daysOfWeek: number;
+};
+
+function RecurringSection({
+  categories,
+  onCreateCategory,
+  maxTaskHours,
+}: {
+  categories: Category[];
+  onCreateCategory: (name: string) => Promise<Category | null>;
+  maxTaskHours: number;
+}) {
+  const [items, setItems] = useState<RecurringItem[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
+
+  const [title, setTitle] = useState("");
+  const [estimate, setEstimate] = useState("");
+  const [priority, setPriority] = useState<Priority>("MEDIUM");
+  const [category, setCategory] = useState<string | null>(null);
+  const [days, setDays] = useState(62);
+
+  useEffect(() => {
+    if (!open || loaded) return;
+    fetch("/api/recurring")
+      .then((r) => r.json())
+      .then((d) => { setItems(d); setLoaded(true); })
+      .catch(() => setLoaded(true));
+  }, [open, loaded]);
+
+  function toggleDay(bit: number) {
+    setDays((prev) => prev ^ bit);
+  }
+
+  async function add() {
+    const t = title.trim();
+    if (!t) return;
+    const est = parseFloat(estimate);
+    if (!Number.isFinite(est) || est <= 0) return;
+    setAdding(true);
+    const res = await fetch("/api/recurring", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: t, estimatedHours: est, priority, categoryId: category, daysOfWeek: days }),
+    });
+    if (res.ok) {
+      const created = await res.json();
+      setItems((prev) => [...prev, created]);
+      setTitle("");
+      setEstimate("");
+      setPriority("MEDIUM");
+      setCategory(null);
+      setDays(62);
+    }
+    setAdding(false);
+  }
+
+  async function toggle(id: string, active: boolean) {
+    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, active } : i)));
+    await fetch(`/api/recurring/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ active }),
+    });
+  }
+
+  async function remove(id: string) {
+    setItems((prev) => prev.filter((i) => i.id !== id));
+    await fetch(`/api/recurring/${id}`, { method: "DELETE" });
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-[#ece8e1] p-[18px]">
+      <button
+        type="button"
+        onClick={() => setOpen((p) => !p)}
+        className="flex items-center justify-between w-full text-left"
+      >
+        <span className="text-[13px] font-semibold text-[#1c1a17]">Recurring tasks</span>
+        <svg className={cn("w-4 h-4 text-[#b0a99e] transition-transform", open && "rotate-180")} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      <p className="text-xs text-[#9c968d] mt-1">Auto-added to your day on matching days.</p>
+
+      {open && (
+        <div className="mt-3 space-y-3">
+          {items.length === 0 && loaded && (
+            <p className="text-xs text-[#b0a99e]">No recurring tasks yet.</p>
+          )}
+
+          {items.map((item) => (
+            <div key={item.id} className={cn("border rounded-xl p-3 space-y-1.5", item.active ? "border-[#ece8e1]" : "border-dashed border-[#e0dcd5] bg-[#faf9f7]")}>
+              <div className="flex items-center gap-2">
+                <p className={cn("text-sm font-medium flex-1 break-words", !item.active && "text-[#b0a99e]")}>{item.title}</p>
+                <span className={cn("text-[10px] font-semibold rounded px-1.5 py-0.5 shrink-0", PRIORITY_META[item.priority].badge)}>
+                  {PRIORITY_META[item.priority].label}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs text-[#9c968d]">{fmtHours(item.estimatedHours)}</span>
+                {item.category && (
+                  <span className="text-[10px] font-semibold rounded px-1.5 py-0.5 bg-indigo-100 text-indigo-700">{item.category.name}</span>
+                )}
+                <span className="text-[10px] text-[#b0a99e]">
+                  {DAY_LABELS.filter((_, i) => (item.daysOfWeek & (1 << i)) !== 0).join(", ")}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => toggle(item.id, !item.active)}
+                  className="text-xs text-[#9c968d] hover:text-primary"
+                >
+                  {item.active ? "Pause" : "Resume"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => remove(item.id)}
+                  className="text-xs text-[#9c968d] hover:text-red-600"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))}
+
+          <div className="border border-dashed border-[#e0dcd5] rounded-xl p-3 space-y-2">
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Recurring task title…"
+              className="w-full text-sm border border-[#ece8e1] rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
+            />
+            <div className="flex items-center gap-2 flex-wrap">
+              <input
+                value={estimate}
+                onChange={(e) => setEstimate(e.target.value)}
+                placeholder="Est. hours"
+                type="number"
+                step="0.25"
+                min="0.25"
+                max={maxTaskHours}
+                className="w-24 text-sm border border-[#ece8e1] rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
+              />
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value as Priority)}
+                className="text-xs border border-[#ece8e1] rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
+              >
+                {PRIORITIES.map((p) => (
+                  <option key={p} value={p}>{PRIORITY_META[p].label}</option>
+                ))}
+              </select>
+              <CategorySelect
+                categories={categories}
+                value={category}
+                onChange={setCategory}
+                onCreate={onCreateCategory}
+                className="flex-1 min-w-[8rem] text-xs"
+              />
+            </div>
+            <div className="flex items-center gap-1">
+              {DAY_LABELS.map((label, i) => {
+                const bit = 1 << i;
+                const on = (days & bit) !== 0;
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => toggleDay(bit)}
+                    className={cn(
+                      "text-[10px] font-semibold w-8 h-7 rounded-md transition-colors",
+                      on ? "bg-primary text-white" : "bg-[#f6f4f1] text-[#9c968d] hover:bg-[#ece8e1]",
+                    )}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              onClick={add}
+              disabled={adding || !title.trim() || !estimate}
+              className="text-xs font-medium px-3 py-1.5 rounded-lg bg-primary text-white hover:bg-primary-hover disabled:opacity-50 transition-colors"
+            >
+              {adding ? "Adding…" : "Add recurring task"}
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -114,6 +114,26 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     if (!category.ok) return NextResponse.json({ error: "Unknown category." }, { status: 400 });
     data.category = category.id ? { connect: { id: category.id } } : { disconnect: true };
   }
+  // Blocker is metadata too — set/clear who this task waits on, any time.
+  if ("blockedOnUserId" in body) {
+    if (body.blockedOnUserId === null || body.blockedOnUserId === "") {
+      data.blockedOnUser = { disconnect: true };
+      data.blockedOnNote = null;
+    } else if (typeof body.blockedOnUserId === "string") {
+      if (body.blockedOnUserId === session.user.id) {
+        return NextResponse.json({ error: "You can't be blocked on yourself." }, { status: 400 });
+      }
+      const blocker = await prisma.user.findUnique({ where: { id: body.blockedOnUserId }, select: { id: true } });
+      if (!blocker) return NextResponse.json({ error: "Unknown user." }, { status: 400 });
+      data.blockedOnUser = { connect: { id: blocker.id } };
+    }
+  }
+  // Remark on the dependency — editable whenever a blocker exists (or is being set).
+  if ("blockedOnNote" in body && !("blockedOnUserId" in body && (body.blockedOnUserId === null || body.blockedOnUserId === ""))) {
+    const n = typeof body.blockedOnNote === "string" ? body.blockedOnNote.trim().slice(0, 500) : "";
+    data.blockedOnNote = n === "" ? null : n;
+  }
+
   // Tags are metadata too — editable on a locked day. `set` replaces the full list.
   if ("tagIds" in body) {
     const tags = await resolveTagIds(prisma, body.tagIds);

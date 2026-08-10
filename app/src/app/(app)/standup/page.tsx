@@ -12,7 +12,33 @@ export default async function MyDayPage() {
   if (session!.user.role === "CXO") redirect("/feed");
   const today = todayDate();
 
-  const [tasks, overdue, queue, settings, dayPlan] = await Promise.all([
+  // Auto-seed recurring task templates: if the user has no tasks for today and
+  // has active recurring templates matching today's day-of-week, create them.
+  const dayOfWeek = today.getUTCDay(); // 0=Sun … 6=Sat
+  const dayBit = 1 << dayOfWeek;
+  const existingCount = await prisma.dailyTask.count({
+    where: { userId: session!.user.id, date: today },
+  });
+  if (existingCount === 0) {
+    const templates = await prisma.recurringTask.findMany({
+      where: { userId: session!.user.id, active: true },
+    });
+    const matching = templates.filter((t) => (t.daysOfWeek & dayBit) !== 0);
+    if (matching.length > 0) {
+      await prisma.dailyTask.createMany({
+        data: matching.map((t) => ({
+          userId: session!.user.id,
+          date: today,
+          title: t.title,
+          estimatedHours: t.estimatedHours,
+          priority: t.priority,
+          categoryId: t.categoryId,
+        })),
+      });
+    }
+  }
+
+  const [tasks, overdue, queue, settings, dayPlan, waitingOnMe] = await Promise.all([
     prisma.dailyTask.findMany({
       where: { userId: session!.user.id, date: today },
       orderBy: { createdAt: "asc" },
@@ -20,6 +46,7 @@ export default async function MyDayPage() {
         ...TAGS_INCLUDE,
         ...WORKLOG_INCLUDE,
         assignedBy: { select: { name: true, email: true } },
+        blockedOnUser: { select: { name: true, email: true } },
       },
     }),
     prisma.dailyTask.findMany({
@@ -38,6 +65,21 @@ export default async function MyDayPage() {
     }),
     prisma.dayPlan.findUnique({
       where: { userId_date: { userId: session!.user.id, date: today } },
+    }),
+    // Open tasks of teammates blocked on me — the "Waiting on you" list. Only
+    // open statuses: once the task is DONE/NOT_WORKED the dependency is moot.
+    prisma.dailyTask.findMany({
+      where: { blockedOnUserId: session!.user.id, status: { notIn: ["DONE", "NOT_WORKED"] } },
+      orderBy: [{ priority: "asc" }, { date: "asc" }],
+      select: {
+        id: true,
+        title: true,
+        date: true,
+        priority: true,
+        status: true,
+        blockedOnNote: true,
+        user: { select: { name: true, email: true } },
+      },
     }),
   ]);
 
@@ -105,6 +147,7 @@ export default async function MyDayPage() {
         isAdmin={session!.user.role === "ADMIN"}
         isManager={session!.user.role === "MANAGER" || session!.user.role === "ADMIN"}
         unsubmittedTeammates={unsubmittedTeammates}
+        waitingOnYou={JSON.parse(JSON.stringify(waitingOnMe))}
         maxTaskHours={settings.maxTaskHours}
         workdayHours={settings.workdayHours}
       />

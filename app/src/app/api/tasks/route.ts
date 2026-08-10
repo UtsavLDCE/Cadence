@@ -88,6 +88,21 @@ export async function POST(req: NextRequest) {
   const tags = await resolveTagIds(prisma, body.tagIds);
   if (!tags.ok) return NextResponse.json({ error: "Unknown tag." }, { status: 400 });
 
+  // Optional cross-person dependency: this task waits on someone else's part.
+  // The blocked-on person sees it in their "Waiting on you" list.
+  let blockedOnUserId: string | null = null;
+  if (typeof body.blockedOnUserId === "string" && body.blockedOnUserId !== "") {
+    if (body.blockedOnUserId === session.user.id) {
+      return NextResponse.json({ error: "You can't be blocked on yourself." }, { status: 400 });
+    }
+    const blocker = await prisma.user.findUnique({ where: { id: body.blockedOnUserId }, select: { id: true } });
+    if (!blocker) return NextResponse.json({ error: "Unknown user." }, { status: 400 });
+    blockedOnUserId = blocker.id;
+  }
+  // Remark on the dependency (what exactly is being waited on) — only meaningful
+  // alongside a blocker, so it's dropped when no one is picked.
+  const blockedOnNote = blockedOnUserId ? parseNotes(body.blockedOnNote) : null;
+
   const today = todayDate();
 
   // Optional backdating: logging work that already happened on an earlier day.
@@ -144,9 +159,11 @@ export async function POST(req: NextRequest) {
       unplanned,
       priority: parsePriority(body.priority) ?? "MEDIUM",
       categoryId: category.id,
+      blockedOnUserId,
+      blockedOnNote,
       tags: tagsConnectInput(tags.ids),
     },
-    include: TAGS_INCLUDE,
+    include: { ...TAGS_INCLUDE, blockedOnUser: { select: { name: true, email: true } } },
   });
   await recordStatusChange(prisma, task.id, task.userId, null, task.status);
   return NextResponse.json(task, { status: 201 });
