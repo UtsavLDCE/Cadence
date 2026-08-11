@@ -782,6 +782,7 @@ export function TasksClient({
   }
 
   async function markNotWorked(id: string) {
+    const t = overdue.find((x) => x.id === id);
     const res = await fetch(`/api/tasks/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -792,7 +793,25 @@ export function TasksClient({
       setError(d.error || "Couldn't mark this task.");
       return;
     }
-    setOverdue((prev) => prev.filter((t) => t.id !== id));
+    setOverdue((prev) => prev.filter((x) => x.id !== id));
+    // Not-worked = planned but never executed; drop it into the backlog so it
+    // stays reachable for later planning instead of vanishing.
+    if (t) {
+      const qres = await fetch("/api/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: t.title,
+          estimatedHours: t.estimatedHours ?? 0.25,
+          priority: t.priority,
+          notes: t.notes,
+        }),
+      });
+      if (qres.ok) {
+        const item = await qres.json();
+        setQueue((prev) => [...prev, item]);
+      }
+    }
   }
 
   // Complete a backlog item directly: the server creates a DONE task dated the day
