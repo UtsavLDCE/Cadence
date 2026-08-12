@@ -891,7 +891,7 @@ export function TasksClient({
         </div>
       )}
 
-      {overplanned && (
+      {overplanned && !submitted && (
         <div className="flex items-start gap-3 bg-[#fdf7ec] border border-[#f0e2c4] text-[#a8791f] rounded-xl px-4 py-3 text-sm">
           <span className="mt-0.5 text-base leading-none">⚠️</span>
           <div>
@@ -966,50 +966,54 @@ export function TasksClient({
       <div className="grid lg:grid-cols-[minmax(0,1fr)_360px] gap-[22px] items-start">
         <div className="min-w-0 flex flex-col gap-4">
 
-          {/* Dark "Today's goal" hero — orients the member and shows effort logged */}
-          <div className="bg-[#1c1a17] rounded-2xl p-5 sm:p-6">
-            {greeting && (
-              <p className="text-xs text-[#8f887e] mb-2">
-                {greeting}
-                {heroName ? `, ${heroName}` : ""}.
-              </p>
-            )}
-            <div className="mono text-[11px] tracking-[0.14em] uppercase text-[#8f887e]">
-              {heroState === "execute" ? "Up next" : "Today’s goal"}
+          {/* Compact "Today's goal" hero + phase guidance — pre-submit only.
+              Once the day is locked, the task list itself is the source of truth. */}
+          {!submitted && (
+          <>
+          <div className="bg-[#1c1a17] rounded-2xl p-3.5 sm:p-4">
+            <div className="flex items-baseline gap-3 flex-wrap">
+              <span className="mono text-[10px] tracking-[0.14em] uppercase text-[#8f887e] shrink-0">
+                {heroState === "execute" ? "Up next" : "Today’s goal"}
+              </span>
+              <span className="text-[15px] font-medium leading-snug text-white break-words min-w-0 flex-1">{heroHeadline}</span>
+              {tasks.length > 0 && (
+                <span className="mono text-[11px] text-[#cfc8bd] whitespace-nowrap shrink-0">{effortPct}% logged</span>
+              )}
             </div>
-            <div className="text-[18px] font-medium leading-snug mt-2 text-white break-words">{heroHeadline}</div>
             {tasks.length > 0 && (
-              <div className="flex items-center gap-3.5 mt-4">
-                <div className="flex-1 h-1.5 rounded-full bg-[#2c2925] overflow-hidden">
-                  <div className="h-full bg-primary bar-fill" style={{ width: `${effortPct}%` }} />
-                </div>
-                <span className="mono text-xs text-[#cfc8bd] whitespace-nowrap">{effortPct}% of planned effort logged</span>
+              <div className="h-1 rounded-full bg-[#2c2925] overflow-hidden mt-2">
+                <div className="h-full bg-primary bar-fill" style={{ width: `${effortPct}%` }} />
               </div>
             )}
           </div>
 
-          {/* Phase guidance + actions — the paragraph and buttons for the current state */}
-          <div className="bg-white rounded-2xl border border-[#ece8e1] p-5">
+          {/* Phase guidance + actions — descriptive prose is collapsed by default so
+              the task list is above the fold. Primary CTA stays visible. */}
+          <div className="bg-white rounded-2xl border border-[#ece8e1] p-4">
             {heroState === "plan-empty" && (
-              <p className="text-sm text-[#9c968d]">
-                Start by adding the tasks you&apos;ll focus on today — pull from{" "}
-                <span className="font-medium text-[#4a453e]">your queue</span>, bring forward{" "}
-                <span className="font-medium text-[#4a453e]">overdue work</span>, or add something new below. When the list looks right, lock it in.
-              </p>
+              <details className="text-sm text-[#9c968d]">
+                <summary className="cursor-pointer font-medium text-[#4a453e] list-none flex items-center gap-1.5">
+                  <span className="text-[#b0a99e]">▸</span> How to start
+                </summary>
+                <p className="mt-2">
+                  Add the tasks you&apos;ll focus on today — pull from{" "}
+                  <span className="font-medium text-[#4a453e]">your queue</span>, bring forward{" "}
+                  <span className="font-medium text-[#4a453e]">overdue work</span>, or add something new below. When the list looks right, lock it in.
+                </p>
+              </details>
             )}
 
             {heroState === "plan-ready" && (
               <>
-                <p className="text-sm text-[#9c968d]">
-                  You&apos;ve lined up <span className="font-medium text-[#4a453e]">{tasks.length} {tasks.length === 1 ? "task" : "tasks"}</span> for about{" "}
-                  <span className="font-medium text-[#4a453e]">{fmtHours(totalEstimate || null)}</span>. Once you submit, the list is locked for the day —
-                  you can still update status, effort, and notes, or move a task to another day.
-                </p>
-                {overplanned && (
-                  <p className="text-sm text-[#c08a2d] mt-2">
-                    ⚠️ That&apos;s {fmtHours(overBy)} over a ~{fmtHours(workdayHours)} day. Consider trimming or moving a task before you start.
+                <div className="flex items-baseline justify-between gap-3 flex-wrap">
+                  <p className="text-sm text-[#4a453e]">
+                    <span className="font-medium">{tasks.length} {tasks.length === 1 ? "task" : "tasks"}</span> ·{" "}
+                    <span className="font-medium">{fmtHours(totalEstimate || null)}</span> planned
                   </p>
-                )}
+                  {overplanned && (
+                    <p className="text-xs text-[#c08a2d]">⚠ {fmtHours(overBy)} over ~{fmtHours(workdayHours)}</p>
+                  )}
+                </div>
                 {goalChecklist}
                 <button
                   type="button"
@@ -1111,10 +1115,19 @@ export function TasksClient({
               </p>
             )}
           </div>
+          </>
+          )}
 
-      {/* Add task — set the morning plan (hidden once the plan is locked) */}
+      {/* Add task — set the morning plan (hidden once the plan is locked).
+          Collapsed by default once there's at least one task, so the plan list
+          stays above the fold. Opens on empty day. */}
       {!submitted && (
-      <form onSubmit={addTask} className="bg-white rounded-xl border border-[#ece8e1] p-4 flex flex-col gap-3">
+      <details open={tasks.length === 0} className="bg-white rounded-xl border border-[#ece8e1] group">
+        <summary className="cursor-pointer list-none px-4 py-2.5 text-sm font-medium text-[#4a453e] flex items-center gap-1.5 hover:bg-[#faf8f4] rounded-xl">
+          <span className="text-[#b0a99e] group-open:rotate-90 transition-transform">▸</span>
+          Add task
+        </summary>
+      <form onSubmit={addTask} className="p-4 pt-2 flex flex-col gap-3">
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
@@ -1207,6 +1220,7 @@ export function TasksClient({
           </button>
         </div>
       </form>
+      </details>
       )}
 
       {error && <p className="text-sm text-primary">{error}</p>}
@@ -2702,9 +2716,11 @@ function CategoryBreakdown({ tasks, categories }: { tasks: Task[]; categories: C
 // exceeds workdayHours the bar shows only categories (no free segment) and the
 // caption calls out the over-plan. Deterministic per-category colour so the
 // segment and its legend chip match.
+// Muted, warm-neutral palette that lives next to the theme's rose/amber/cream
+// without shouting. Kept mid-value so white segment labels stay legible.
 const CATEGORY_COLORS = [
-  "#e0533a", "#c08a2d", "#3f8a5b", "#4a7fbf", "#8b5cf6",
-  "#db2777", "#0891b2", "#65a30d", "#a16207", "#7c3aed",
+  "#b8574a", "#a37a3a", "#7e8b7a", "#7a8fa6", "#8a7a9c",
+  "#a8756e", "#6b8a8a", "#9c8a5f", "#5f7a8a", "#8a6b6b",
 ];
 function colorFor(key: string): string {
   let h = 0;
@@ -2878,6 +2894,7 @@ function TaskRow({
   const workLogs = task.workLogs ?? [];
   const hasLog = workLogs.length > 0;
   const [logOpen, setLogOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   function confirmHold() {
     onPatch(task.id, { status: "HOLD" }, { holdReason: holdReason.trim(), blockedOn: holdBlockedOn.trim() });
@@ -2951,8 +2968,14 @@ function TaskRow({
 
   return (
     <div
+      onClick={(e) => {
+        // Toggle the tags/log/note action strip when the row itself is clicked.
+        // Ignore clicks that land on any interactive control inside the row.
+        if ((e.target as HTMLElement).closest("button, input, select, textarea, label, a")) return;
+        setMoreOpen((v) => !v);
+      }}
       className={cn(
-        "bg-white rounded-xl border p-4 flex flex-col gap-3",
+        "bg-white rounded-xl border p-4 flex flex-col gap-3 cursor-pointer",
         isFocus && !done ? "border-primary ring-2 ring-[#e0533a33]" : done ? "border-emerald-200" : "border-[#ece8e1]"
       )}
     >
@@ -3366,27 +3389,18 @@ function TaskRow({
         </div>
       )}
 
-      {/* Tags — free-form labels, editable any time (allowed even on a locked day) */}
-      {tagsOpen ? (
+      {/* Tags — panel only when opened (via ⋯ menu). Kept visible while open. */}
+      {tagsOpen && (
         <TagInput
           value={task.tags}
           onChange={(next) => onSetTags(task.id, next)}
           suggestions={allTags}
           onCreate={onCreateTag}
         />
-      ) : (
-        <button
-          type="button"
-          onClick={() => setTagsOpen(true)}
-          className="self-start text-xs text-[#b0a99e] hover:text-primary"
-        >
-          {task.tags.length > 0 ? "🏷 Edit tags" : "+ Add tags"}
-        </button>
       )}
 
-      {/* Work log — dated time-entries so a task can accrue effort across days.
-          Opens by default when entries already exist so the history is visible. */}
-      {logOpen || hasLog ? (
+      {/* Work log — auto-shows once entries exist; otherwise revealed via ⋯ menu */}
+      {(logOpen || hasLog) && (
         <WorkLogPanel
           task={task}
           entries={workLogs}
@@ -3394,18 +3408,10 @@ function TaskRow({
           onDeleteWorkLog={onDeleteWorkLog}
           todayStr={todayStr}
         />
-      ) : (
-        <button
-          type="button"
-          onClick={() => setLogOpen(true)}
-          className="self-start text-xs text-[#b0a99e] hover:text-primary"
-        >
-          🕒 Log work
-        </button>
       )}
 
-      {/* Notes — progress/context the manager can see */}
-      {notesOpen ? (
+      {/* Notes — panel only when opened (via ⋯ menu) */}
+      {notesOpen && (
         <textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
@@ -3415,14 +3421,40 @@ function TaskRow({
           placeholder="Add a note or progress update for your manager…"
           className="w-full border border-[#ece8e1] rounded-lg px-3 py-2 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-[#e0533a55]"
         />
-      ) : (
-        <button
-          type="button"
-          onClick={() => setNotesOpen(true)}
-          className="self-start text-xs text-[#b0a99e] hover:text-primary"
-        >
-          + Add note
-        </button>
+      )}
+
+      {/* Tags/log/note affordances — revealed by clicking the row. Each opens
+          its panel above; a row without any of these actions taken stays quiet. */}
+      {moreOpen && (!tagsOpen || !(logOpen || hasLog) || !notesOpen) && (
+        <div className="self-start inline-flex items-center gap-3 text-xs">
+          {!tagsOpen && (
+            <button
+              type="button"
+              onClick={() => { setTagsOpen(true); setMoreOpen(false); }}
+              className="text-[#6b665f] hover:text-primary"
+            >
+              {task.tags.length > 0 ? "🏷 Edit tags" : "+ Add tags"}
+            </button>
+          )}
+          {!(logOpen || hasLog) && (
+            <button
+              type="button"
+              onClick={() => { setLogOpen(true); setMoreOpen(false); }}
+              className="text-[#6b665f] hover:text-primary"
+            >
+              🕒 Log work
+            </button>
+          )}
+          {!notesOpen && (
+            <button
+              type="button"
+              onClick={() => { setNotesOpen(true); setMoreOpen(false); }}
+              className="text-[#6b665f] hover:text-primary"
+            >
+              + Add note
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
