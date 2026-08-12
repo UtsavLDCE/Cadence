@@ -782,7 +782,6 @@ export function TasksClient({
   }
 
   async function markNotWorked(id: string) {
-    const t = overdue.find((x) => x.id === id);
     const res = await fetch(`/api/tasks/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -793,25 +792,9 @@ export function TasksClient({
       setError(d.error || "Couldn't mark this task.");
       return;
     }
-    setOverdue((prev) => prev.filter((x) => x.id !== id));
-    // Not-worked = planned but never executed; drop it into the backlog so it
-    // stays reachable for later planning instead of vanishing.
-    if (t) {
-      const qres = await fetch("/api/queue", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: t.title,
-          estimatedHours: t.estimatedHours ?? 0.25,
-          priority: t.priority,
-          notes: t.notes,
-        }),
-      });
-      if (qres.ok) {
-        const item = await qres.json();
-        setQueue((prev) => [...prev, item]);
-      }
-    }
+    // Keep it in "My queue" as NOT_WORKED — planned-but-not-executed still
+    // deserves a slot; user can carry it forward later or leave it archived.
+    setOverdue((prev) => prev.map((x) => (x.id === id ? { ...x, status: "NOT_WORKED" } : x)));
   }
 
   // Complete a backlog item directly: the server creates a DONE task dated the day
@@ -973,6 +956,11 @@ export function TasksClient({
           })}
         </div>
       </div>
+
+      {/* Single-line day-capacity bar — how the workday breaks up by category,
+          with any unplanned slack shown as "Free time". Renders even before
+          planning (empty = all free time). */}
+      <DayCapacityBar tasks={tasks} categories={categories} workdayHours={workdayHours} />
 
       {/* Main split: focused work column + supporting sidebar */}
       <div className="grid lg:grid-cols-[minmax(0,1fr)_360px] gap-[22px] items-start">
@@ -1416,6 +1404,11 @@ export function TasksClient({
               <Glance label="ACTUAL" value={fmtHours(totalActual || null)} accent />
             </div>
           </div>
+
+          {/* Time by category — where today's hours are going. Shows planned bars
+              always; overlays actual once any hours are logged. Same card before
+              and after submit. */}
+          <CategoryBreakdown tasks={tasks} categories={categories} />
 
           {/* Planning accuracy — estimate vs actual on completed tasks. Admin-only. */}
           {isAdmin && (
@@ -2050,6 +2043,11 @@ function OverdueRow({
             <span className="text-[10px] font-semibold text-[#c08a2d] bg-[#f8f0dd] rounded px-1.5 py-0.5 shrink-0">
               {daysLate}d overdue
             </span>
+            {t.status === "NOT_WORKED" && (
+              <span className="text-[10px] font-semibold text-[#6b665f] bg-[#ece8e1] rounded px-1.5 py-0.5 shrink-0">
+                Not Worked
+              </span>
+            )}
           </div>
           <p className="text-xs text-[#b0a99e] mt-0.5">
             Est. {fmtHours(t.estimatedHours)}
@@ -2082,22 +2080,26 @@ function OverdueRow({
             every overdue row since a user may just have forgotten to flip status;
             works even on a locked day (completing isn't plan-changing). The dialog
             floors the date at the task's planned day (server enforces the same). */}
-        <button
-          type="button"
-          onClick={() => setDoneOpen(true)}
-          className="border border-[#cfe6d4] text-[#3f8a5b] hover:bg-[#f0f8f2] font-medium text-xs px-3 py-1.5 rounded-lg transition-colors shrink-0"
-          title="Mark this done with the day and effort it took"
-        >
-          ✓ Done
-        </button>
-        <button
-          type="button"
-          onClick={() => onNotWorked(t.id)}
-          className="border border-[#f0d6c8] text-[#9c4221] hover:bg-[#fdf0ea] font-medium text-xs px-3 py-1.5 rounded-lg transition-colors shrink-0"
-          title="Mark as not worked — planned but not executed"
-        >
-          ✗ Not Worked
-        </button>
+        {t.status !== "NOT_WORKED" && (
+          <button
+            type="button"
+            onClick={() => setDoneOpen(true)}
+            className="border border-[#cfe6d4] text-[#3f8a5b] hover:bg-[#f0f8f2] font-medium text-xs px-3 py-1.5 rounded-lg transition-colors shrink-0"
+            title="Mark this done with the day and effort it took"
+          >
+            ✓ Done
+          </button>
+        )}
+        {t.status !== "NOT_WORKED" && (
+          <button
+            type="button"
+            onClick={() => onNotWorked(t.id)}
+            className="border border-[#f0d6c8] text-[#9c4221] hover:bg-[#fdf0ea] font-medium text-xs px-3 py-1.5 rounded-lg transition-colors shrink-0"
+            title="Mark as not worked — planned but not executed"
+          >
+            ✗ Not Worked
+          </button>
+        )}
         {!locked && (
           <button
             type="button"
@@ -2630,6 +2632,165 @@ function Glance({ label, value, sub, accent }: { label: string; value: string; s
       <div className={cn("mono text-xl font-semibold mt-0.5", accent ? "text-[#c08a2d]" : "text-[#1c1a17]")}>
         {value}
         {sub && <span className="text-[#c7c0b6]">{sub}</span>}
+      </div>
+    </div>
+  );
+}
+
+// Where today's hours are going, by category. Bars render off estimatedHours
+// so the split appears the moment you plan; a paler overlay bar shows logged
+// actualHours once any effort is recorded. "Uncategorized" bucket for tasks
+// with no category set. Hidden when today has no tasks with an estimate.
+function CategoryBreakdown({ tasks, categories }: { tasks: Task[]; categories: Category[] }) {
+  // Club by normalized name so categories that mean the same thing (case /
+  // whitespace variants, or distinct ids sharing a label) merge into one row.
+  const buckets = new Map<string, { name: string; est: number; act: number }>();
+  for (const t of tasks) {
+    const raw = t.categoryId ? categoryName(categories, t.categoryId) ?? "Uncategorized" : "Uncategorized";
+    const key = raw.trim().toLowerCase();
+    const b = buckets.get(key) ?? { name: raw.trim(), est: 0, act: 0 };
+    b.est += t.estimatedHours ?? 0;
+    b.act += t.actualHours ?? 0;
+    buckets.set(key, b);
+  }
+  const rows = Array.from(buckets.values()).filter((b) => b.est > 0 || b.act > 0).sort((a, b) => b.est - a.est);
+  if (rows.length === 0) return null;
+  const maxEst = rows.reduce((m, r) => Math.max(m, r.est, r.act), 0) || 1;
+  const totalEst = rows.reduce((s, r) => s + r.est, 0);
+  const totalAct = rows.reduce((s, r) => s + r.act, 0);
+  const hasActual = totalAct > 0;
+  return (
+    <div className="bg-white rounded-2xl border border-[#ece8e1] p-[18px]">
+      <div className="flex items-baseline justify-between mb-3.5">
+        <div className="text-[13px] font-semibold text-[#1c1a17]">Time by category</div>
+        <div className="text-[11px] text-[#b0a99e]">
+          Planned {fmtHours(totalEst || null)}
+          {hasActual && <span className="text-[#c08a2d]"> · Actual {fmtHours(totalAct || null)}</span>}
+        </div>
+      </div>
+      <div className="space-y-2.5">
+        {rows.map((r) => {
+          const estPct = (r.est / maxEst) * 100;
+          const actPct = (r.act / maxEst) * 100;
+          const share = totalEst > 0 ? Math.round((r.est / totalEst) * 100) : 0;
+          return (
+            <div key={r.name}>
+              <div className="flex items-baseline justify-between text-[11px] mb-1">
+                <span className="text-[#4a453e] font-medium truncate pr-2">{r.name}</span>
+                <span className="text-[#b0a99e] tabular-nums shrink-0">
+                  {fmtHours(r.est || null)}
+                  {hasActual && r.act > 0 && <span className="text-[#c08a2d]"> · {fmtHours(r.act)}</span>}
+                  {share > 0 && <span className="text-[#c7c0b6]"> · {share}%</span>}
+                </span>
+              </div>
+              <div className="relative h-2 rounded-full bg-[#f2eee7] overflow-hidden">
+                <div className="absolute inset-y-0 left-0 bg-[#e0533a]/60 rounded-full" style={{ width: `${estPct}%` }} />
+                {r.act > 0 && (
+                  <div className="absolute inset-y-0 left-0 bg-[#c08a2d] rounded-full" style={{ width: `${actPct}%` }} />
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Single-line stacked bar of the workday: one segment per category (sized by
+// planned estimatedHours), remaining capacity as "Free time". If planned effort
+// exceeds workdayHours the bar shows only categories (no free segment) and the
+// caption calls out the over-plan. Deterministic per-category colour so the
+// segment and its legend chip match.
+const CATEGORY_COLORS = [
+  "#e0533a", "#c08a2d", "#3f8a5b", "#4a7fbf", "#8b5cf6",
+  "#db2777", "#0891b2", "#65a30d", "#a16207", "#7c3aed",
+];
+function colorFor(key: string): string {
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return CATEGORY_COLORS[h % CATEGORY_COLORS.length];
+}
+function DayCapacityBar({ tasks, categories, workdayHours }: { tasks: Task[]; categories: Category[]; workdayHours: number }) {
+  // Club by normalized name so like-named categories merge into one segment
+  // (and get one colour) instead of appearing as adjacent lookalike slices.
+  const buckets = new Map<string, { name: string; est: number; color: string }>();
+  for (const t of tasks) {
+    const est = t.estimatedHours ?? 0;
+    if (est <= 0) continue;
+    const raw = t.categoryId ? categoryName(categories, t.categoryId) ?? "Uncategorized" : "Uncategorized";
+    const key = raw.trim().toLowerCase();
+    const b = buckets.get(key) ?? { name: raw.trim(), est: 0, color: colorFor(key) };
+    b.est += est;
+    buckets.set(key, b);
+  }
+  const rows = Array.from(buckets.values()).sort((a, b) => b.est - a.est);
+  const planned = rows.reduce((s, r) => s + r.est, 0);
+  const cap = Math.max(workdayHours, 0.0001);
+  const over = planned > cap;
+  const denom = over ? planned : cap;
+  const free = Math.max(0, cap - planned);
+  return (
+    <div className="bg-white rounded-2xl border border-[#ece8e1] px-[18px] py-3">
+      <div className="flex items-baseline justify-between mb-2 gap-3">
+        <div className="text-[12px] font-semibold text-[#1c1a17]">Day capacity</div>
+        <div className="text-[11px] text-[#b0a99e] tabular-nums">
+          {fmtHours(planned || null) ?? "0h"} planned · {over ? (
+            <span className="text-[#c08a2d]">{fmtHours(planned - cap)} over {fmtHours(cap)}</span>
+          ) : (
+            <span>{fmtHours(free || null) ?? "0h"} free of {fmtHours(cap)}</span>
+          )}
+        </div>
+      </div>
+      <div className="flex h-6 w-full rounded-md overflow-hidden bg-[#f2eee7]">
+        {rows.map((r) => {
+          const pct = (r.est / denom) * 100;
+          return (
+            <div
+              key={r.name}
+              title={`${r.name} · ${fmtHours(r.est)}`}
+              style={{ width: `${pct}%`, backgroundColor: r.color }}
+              className="flex items-center justify-center px-1.5 text-[10px] font-medium text-white leading-none overflow-hidden whitespace-nowrap"
+            >
+              {pct >= 6 && (
+                <span className="truncate">
+                  {r.name}
+                  {pct >= 12 && <span className="opacity-80"> · {fmtHours(r.est)}</span>}
+                </span>
+              )}
+            </div>
+          );
+        })}
+        {!over && free > 0 && (
+          <div
+            title={`Free time · ${fmtHours(free)}`}
+            style={{ width: `${(free / denom) * 100}%` }}
+            className="flex items-center justify-center px-1.5 text-[10px] font-medium text-[#8f887e] leading-none overflow-hidden whitespace-nowrap bg-[#f2eee7]"
+          >
+            {(free / denom) * 100 >= 6 && (
+              <span className="truncate">
+                Free
+                {(free / denom) * 100 >= 12 && <span className="opacity-80"> · {fmtHours(free)}</span>}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-[11px] text-[#6b665f]">
+        {rows.map((r) => (
+          <span key={r.name} className="inline-flex items-center gap-1.5">
+            <span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: r.color }} />
+            <span className="truncate max-w-[10rem]">{r.name}</span>
+            <span className="tabular-nums text-[#b0a99e]">{fmtHours(r.est)}</span>
+          </span>
+        ))}
+        {!over && (
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-block w-2 h-2 rounded-sm bg-[#e5ded2] border border-[#d4ccbe]" />
+            <span>Free time</span>
+            <span className="tabular-nums text-[#b0a99e]">{fmtHours(free)}</span>
+          </span>
+        )}
       </div>
     </div>
   );
