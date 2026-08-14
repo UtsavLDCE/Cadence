@@ -149,6 +149,7 @@ export function TasksClient({
   isManager,
   unsubmittedTeammates,
   waitingOnYou,
+  yesterdayDone: initialYesterdayDone,
   maxTaskHours,
   workdayHours,
 }: {
@@ -166,6 +167,8 @@ export function TasksClient({
   unsubmittedTeammates: string[];
   // Teammates' open tasks blocked on me — surfaced so I prioritize accordingly.
   waitingOnYou: WaitingTask[];
+  // Yesterday's completed tasks — muted read-only strip at the bottom of My Day.
+  yesterdayDone: { id: string; title: string; priority: Priority; estimatedHours: number | null; actualHours: number | null }[];
   // Admin-configurable caps (AppSettings). maxTaskHours = per-task hard cap;
   // workdayHours = single-day capacity driving the over-plan + min-plan hints.
   maxTaskHours: number;
@@ -322,10 +325,6 @@ export function TasksClient({
     const keptHours = keeping.reduce((s, t) => s + (t.estimatedHours ?? 0), 0);
     if (keptHours < minPlanHours(workdayHours)) {
       setError(`${minPlanMsg(workdayHours)} You're ${fmtHours(minPlanHours(workdayHours) - keptHours)} short — add more before submitting.`);
-      return;
-    }
-    if (overdue.length > 0) {
-      setError(`You have ${overdue.length} unresolved ${overdue.length === 1 ? "task" : "tasks"} from previous days. Mark each as Done or Not Worked in "My queue" before submitting.`);
       return;
     }
     const confirmMsg = toQueue.length
@@ -1478,9 +1477,150 @@ export function TasksClient({
         </aside>
       </div>
 
+      <YesterdaySection
+        yesterdayStr={yesterdayStr}
+        open={overdue.filter((t) => t.date.slice(0, 10) === yesterdayStr)}
+        done={initialYesterdayDone}
+        onComplete={completeOverdue}
+        onMarkNotWorked={markNotWorked}
+        todayStr={todayStr}
+      />
+
       <p className="text-xs text-[#b0a99e] text-center">
         Cutoff for the day&apos;s plan is {cutoffTime}. Set estimates in the morning, update actual effort when you wrap up.
       </p>
+    </div>
+  );
+}
+
+// Bottom-of-page yesterday recap. "Not updated" = yesterday-dated tasks still
+// open/held — quick Done or Not Worked without leaving My Day. "Also done" is
+// a muted read-only strip so the day's full record is visible in one place.
+// Hidden entirely when yesterday has no activity.
+function YesterdaySection({
+  yesterdayStr,
+  open,
+  done,
+  onComplete,
+  onMarkNotWorked,
+  todayStr,
+}: {
+  yesterdayStr: string;
+  open: OverdueTask[];
+  done: { id: string; title: string; priority: Priority; estimatedHours: number | null; actualHours: number | null }[];
+  onComplete: (id: string, completedDate: string, hours: number | null) => Promise<void> | void;
+  onMarkNotWorked: (id: string) => Promise<void> | void;
+  todayStr: string;
+}) {
+  if (open.length === 0 && done.length === 0) return null;
+  const notUpdated = open.filter((t) => t.status !== "NOT_WORKED");
+  return (
+    <details className="bg-white rounded-2xl border border-[#ece8e1] group" open={notUpdated.length > 0}>
+      <summary className="cursor-pointer list-none px-[18px] py-3 flex items-center gap-2 hover:bg-[#faf8f4] rounded-2xl">
+        <span className="text-[#b0a99e] group-open:rotate-90 transition-transform">▸</span>
+        <span className="text-[13px] font-semibold text-[#1c1a17]">Yesterday</span>
+        <span className="text-[11px] text-[#b0a99e]">({yesterdayStr})</span>
+        <span className="ml-auto flex items-center gap-2">
+          {notUpdated.length > 0 && (
+            <span className="text-[11px] font-semibold text-[#c0533a] bg-[#f8ece9] rounded-full px-2 py-0.5">
+              {notUpdated.length} not updated
+            </span>
+          )}
+          {done.length > 0 && (
+            <span className="text-[11px] text-[#3f8a5b] bg-[#e9f4ec] rounded-full px-2 py-0.5">
+              {done.length} done
+            </span>
+          )}
+        </span>
+      </summary>
+      <div className="px-[18px] pb-4 pt-1 space-y-3">
+        {open.length > 0 && (
+          <div className="space-y-1.5">
+            {open.map((t) => (
+              <YesterdayOpenRow
+                key={t.id}
+                task={t}
+                todayStr={todayStr}
+                onComplete={onComplete}
+                onMarkNotWorked={onMarkNotWorked}
+              />
+            ))}
+          </div>
+        )}
+        {done.length > 0 && (
+          <div className="space-y-1">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-[#9c968d]">Also done yesterday</div>
+            <ul className="space-y-0.5">
+              {done.map((t) => (
+                <li key={t.id} className="flex items-center gap-2 text-xs text-[#9c968d]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#3f8a5b] shrink-0" />
+                  <span className="flex-1 min-w-0 truncate line-through">{t.title}</span>
+                  <span className="tabular-nums shrink-0">{fmtHours(t.actualHours ?? t.estimatedHours)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
+// One yesterday-open row. Local dialog state so "Done" can capture actual hours
+// (worked-but-not-updated case), instead of silently posting null hours.
+function YesterdayOpenRow({
+  task: t,
+  todayStr,
+  onComplete,
+  onMarkNotWorked,
+}: {
+  task: OverdueTask;
+  todayStr: string;
+  onComplete: (id: string, completedDate: string, hours: number | null) => Promise<void> | void;
+  onMarkNotWorked: (id: string) => Promise<void> | void;
+}) {
+  const [doneOpen, setDoneOpen] = useState(false);
+  return (
+    <div className="flex items-center gap-2 border border-[#f8f0dd] bg-[#fdf7ec]/40 rounded-lg px-3 py-2">
+      <span className={cn("text-[10px] font-semibold rounded px-1.5 py-0.5 shrink-0", PRIORITY_META[t.priority].badge)}>
+        {PRIORITY_META[t.priority].label}
+      </span>
+      <span className="text-sm text-[#1c1a17] flex-1 min-w-0 truncate">{t.title}</span>
+      <span className="text-[11px] text-[#b0a99e] tabular-nums shrink-0">{fmtHours(t.estimatedHours)}</span>
+      {t.status === "NOT_WORKED" ? (
+        <span className="text-[10px] font-semibold text-[#6b665f] bg-[#ece8e1] rounded px-1.5 py-0.5 shrink-0">
+          Not Worked
+        </span>
+      ) : (
+        <>
+          <button
+            type="button"
+            onClick={() => setDoneOpen(true)}
+            className="border border-[#cfe6d4] text-[#3f8a5b] hover:bg-[#f0f8f2] font-medium text-xs px-2.5 py-1 rounded-lg transition-colors shrink-0"
+            title="Mark done — pick the day and log actual hours"
+          >
+            ✓ Done
+          </button>
+          <button
+            type="button"
+            onClick={() => onMarkNotWorked(t.id)}
+            className="border border-[#f0d6c8] text-[#9c4221] hover:bg-[#fdf0ea] font-medium text-xs px-2.5 py-1 rounded-lg transition-colors shrink-0"
+            title="Planned but not executed"
+          >
+            ✗ Not Worked
+          </button>
+        </>
+      )}
+      {doneOpen && (
+        <MarkDoneDialog
+          title={t.title}
+          defaultHours={t.estimatedHours}
+          minDate={t.date.slice(0, 10)}
+          maxDate={todayStr}
+          onConfirm={(date, hours) => Promise.resolve(onComplete(t.id, date, hours))}
+          onClose={() => setDoneOpen(false)}
+        />
+      )}
     </div>
   );
 }

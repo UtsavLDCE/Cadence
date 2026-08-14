@@ -70,6 +70,7 @@ export default async function FeedPage({
       select: {
         id: true, userId: true, title: true, status: true, priority: true,
         estimatedHours: true, actualHours: true, unplanned: true, deferredToDate: true,
+        category: { select: { name: true } },
       },
       orderBy: { createdAt: "asc" },
     }),
@@ -115,7 +116,12 @@ export default async function FeedPage({
         plannedHours: uTasks
           .filter((t) => !t.unplanned && !t.deferredToDate)
           .reduce((s, t) => s + (t.estimatedHours ?? 0), 0),
-        logged: uTasks.reduce((s, t) => s + (t.actualHours ?? 0), 0),
+        plannedActual: uTasks
+          .filter((t) => !t.unplanned && !t.deferredToDate)
+          .reduce((s, t) => s + (t.actualHours ?? 0), 0),
+        unplannedActual: uTasks
+          .filter((t) => t.unplanned)
+          .reduce((s, t) => s + (t.actualHours ?? 0), 0),
         submitted: Boolean(plan?.submittedAt),
         goal: plan?.goal ?? null,
         hasStandup: standupUsers.has(u.id),
@@ -255,6 +261,7 @@ type Task = {
   priority: Priority;
   estimatedHours: number | null;
   actualHours: number | null;
+  category?: { name: string } | null;
 };
 
 function MemberCard({
@@ -269,7 +276,8 @@ function MemberCard({
     unplanned: Task[];
     done: Task[];
     plannedHours: number;
-    logged: number;
+    plannedActual: number;
+    unplannedActual: number;
     submitted: boolean;
     goal: string | null;
     hasStandup: boolean;
@@ -278,7 +286,7 @@ function MemberCard({
   workday: number;
   minPlan: number;
 }) {
-  const { user, planned, deferred, unplanned, done, plannedHours, logged, submitted, goal, hasStandup, active } = row;
+  const { user, planned, deferred, unplanned, done, plannedHours, plannedActual, unplannedActual, submitted, goal, hasStandup, active } = row;
   const name = user.name || user.email || "Unknown";
 
   // Color the planned load only once the day is committed. Over the workday cap
@@ -315,8 +323,8 @@ function MemberCard({
         <>
           <p className="mono text-xs text-[#9c968d] mt-3">
             {done.length} of {planned.length} planned done ·{" "}
-            <span className={plannedCls}>{fmtHours(plannedHours || null)} planned{planTag}</span> vs {fmtHours(logged || null)} actual
-            {unplanned.length > 0 && ` · ${unplanned.length} unplanned`}
+            <span className={plannedCls}>{fmtHours(plannedHours || null)} planned{planTag}</span> vs {fmtHours(plannedActual || null)} actual
+            {unplanned.length > 0 && ` · ${unplanned.length} unplanned (${fmtHours(unplannedActual || null)})`}
           </p>
 
           <div className="grid sm:grid-cols-2 gap-4 mt-3">
@@ -372,6 +380,11 @@ function TaskGroup({
             <li key={t.id} className="flex items-center gap-2 text-sm">
               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_META[t.status].dot}`} />
               <span className="flex-1 truncate text-[#2c2925]">{t.title}</span>
+              {t.category?.name && (
+                <span className="text-[10px] font-semibold rounded px-1.5 py-0.5 shrink-0 bg-indigo-100 text-indigo-700">
+                  {t.category.name}
+                </span>
+              )}
               <span className={`text-[10px] font-semibold rounded px-1.5 py-0.5 shrink-0 ${PRIORITY_META[t.priority].badge}`}>
                 {PRIORITY_META[t.priority].label}
               </span>

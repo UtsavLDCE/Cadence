@@ -38,7 +38,9 @@ export default async function MyDayPage() {
     }
   }
 
-  const [tasks, overdue, queue, settings, dayPlan, waitingOnMe] = await Promise.all([
+  const yesterday = new Date(today);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const [tasks, overdue, queue, settings, dayPlan, waitingOnMe, yesterdayDone] = await Promise.all([
     prisma.dailyTask.findMany({
       where: { userId: session!.user.id, date: today },
       orderBy: { createdAt: "asc" },
@@ -82,6 +84,13 @@ export default async function MyDayPage() {
         blockedOnNote: true,
         user: { select: { name: true, email: true } },
       },
+    }),
+    // Yesterday's DONE tasks — read-only summary at the bottom of My Day. Open
+    // items from yesterday still ride in the overdue "My queue" list.
+    prisma.dailyTask.findMany({
+      where: { userId: session!.user.id, date: yesterday, status: "DONE" },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, title: true, priority: true, estimatedHours: true, actualHours: true },
     }),
   ]);
 
@@ -150,6 +159,7 @@ export default async function MyDayPage() {
         isManager={session!.user.role === "MANAGER" || session!.user.role === "ADMIN"}
         unsubmittedTeammates={unsubmittedTeammates}
         waitingOnYou={JSON.parse(JSON.stringify(waitingOnMe))}
+        yesterdayDone={JSON.parse(JSON.stringify(yesterdayDone))}
         maxTaskHours={settings.maxTaskHours}
         workdayHours={settings.workdayHours}
       />
