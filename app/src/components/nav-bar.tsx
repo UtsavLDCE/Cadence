@@ -45,6 +45,7 @@ export function NavBar({ user, hasSprint }: { user: User; hasSprint: boolean }) 
     // Managers/admins always see Sprint (they upload the CSV); members only once one exists.
     { href: "/sprint", label: "My Sprint", roles: ["ADMIN", "MANAGER", "MEMBER"], show: hasSprint || user.role === "ADMIN" || user.role === "MANAGER" },
     { href: "/plan", label: "Plan Day", roles: ["ADMIN", "MANAGER", "CXO"], show: true },
+    { href: "/time-audit", label: "Time Audit", roles: ["ADMIN", "MANAGER"], show: true },
     { href: "/insights", label: "Insights", roles: ["ADMIN", "MANAGER", "CXO"], show: true },
     // ponytail: Team hidden for now — flip show:true to restore.
     { href: "/dashboard", label: "Team", roles: ["ADMIN", "MANAGER"], show: false },

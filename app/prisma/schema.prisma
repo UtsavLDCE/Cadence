@@ -81,6 +81,7 @@ model User {
   tags            Tag[]
   notes           Note[]
   recurringTasks  RecurringTask[]
+  timeSlots       TimeSlot[]
 }
 
 // A personal, free-form dated note. One raw string per entry; the /notes page
@@ -217,6 +218,10 @@ model DailyTask {
   // category (one "kind of work" per task), tags are an open set the team layers on
   // top — project names, clients, release themes — for cross-cutting filtering.
   tags         Tag[]
+
+  // Manager-only time-audit blocks assigning this task to a start/end window with
+  // optional live timer. Cascade so removing the task drops its slots.
+  timeSlots    TimeSlot[]
 
   @@index([userId, date])
   @@index([userId, status])
@@ -462,6 +467,30 @@ model RecurringTask {
   category TaskCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
   @@index([userId, active])
+}
+
+// Time Audit — manager-only planning tool. A slot pins a DailyTask to a focused
+// start/end window on a given day (`plannedStart`/`plannedEnd`, minutes from
+// UTC midnight, 0-1439). Optional live timer: `actualStart` is stamped when the
+// manager hits Start, `actualEnd` when they hit Stop, so planned vs actual is
+// visible per block. Overlaps are allowed (surfaced in UI). Cascade on task delete.
+model TimeSlot {
+  id           String    @id @default(cuid())
+  userId       String
+  date         DateTime  @db.Date
+  taskId       String
+  plannedStart Int
+  plannedEnd   Int
+  actualStart  DateTime?
+  actualEnd    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task DailyTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+  @@index([taskId])
 }
 
 enum UserRole {

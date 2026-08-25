@@ -10,7 +10,7 @@ import { TimelineSelector } from "./timeline-selector";
 import { ScopeToggle, type Scope } from "@/components/scope-toggle";
 import { TeamFilter } from "@/components/team-filter";
 
-type SortKey = "name" | "discipline" | "drift" | "fire" | "reopens" | "wip";
+type SortKey = "name" | "discipline" | "drift" | "fire" | "reopens" | "wip" | "underplan" | "deferrals";
 
 export function InsightsClient({
   team,
@@ -62,6 +62,11 @@ export function InsightsClient({
         return b.flow.reopens - a.flow.reopens;
       case "wip":
         return b.wip.inProgress - a.wip.inProgress;
+      case "underplan":
+        // Lowest planLoadPct first; nulls (no plan data) sink to the bottom.
+        return (a.util.pct ?? 999) - (b.util.pct ?? 999);
+      case "deferrals":
+        return b.deferral.total - a.deferral.total;
       default:
         return (a.name ?? "").localeCompare(b.name ?? "");
     }
@@ -165,6 +170,8 @@ export function InsightsClient({
         emptyHint="Nothing logged as blocked yet. When someone puts a task on hold, they can name who it's waiting on — those dependencies surface here."
       />
 
+      <CapacityConcerns members={members} onFocus={(key) => setSort(key)} />
+
       {/* Below KPIs: main analytics on the left (3/4), the per-person "where time
           goes" rail on the right (1/4). */}
       <div className="flex gap-[22px] items-start">
@@ -208,6 +215,8 @@ export function InsightsClient({
                 <option value="fire">Firefighting</option>
                 <option value="reopens">Rework</option>
                 <option value="wip">WIP</option>
+                <option value="underplan">Under-planning</option>
+                <option value="deferrals">Deferrals</option>
                 <option value="name">Name</option>
               </select>
             </label>
@@ -398,5 +407,125 @@ function MemberRow({ m }: { m: MemberInsights }) {
         )}
       </td>
     </tr>
+  );
+}
+
+// Two ranked lists surfacing capacity leaks a manager cares about:
+//   - Under-planning: people whose plan falls under MIN_PLAN_LOAD_PCT of workday
+//     capacity (they're not committing to enough work). Sorted lowest first.
+//   - Chronic deferrers: people with the most tasks slipped to a later day in
+//     the window. Sorted highest first.
+// Clicking a name jumps the By-person table to the matching sort.
+function CapacityConcerns({
+  members,
+  onFocus,
+}: {
+  members: MemberInsights[];
+  onFocus: (key: SortKey) => void;
+}) {
+  const underPlanned = members
+    .filter((m) => m.util.underPlanned && m.util.pct != null)
+    .sort((a, b) => (a.util.pct ?? 999) - (b.util.pct ?? 999))
+    .slice(0, 5);
+  const deferrers = members
+    .filter((m) => m.deferral.total > 0)
+    .sort((a, b) => b.deferral.total - a.deferral.total)
+    .slice(0, 5);
+
+  if (underPlanned.length === 0 && deferrers.length === 0) return null;
+
+  return (
+    <div className="bg-white rounded-[16px] border border-[#ece8e1] p-[22px] mb-[22px]">
+      <div className="flex items-center gap-2 mb-3">
+        <h2 className="text-sm font-semibold text-[#1c1a17]">Capacity concerns</h2>
+        <span className="text-[11px] text-[#b0a99e]">who&apos;s not planning enough or pushing work forward</span>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <ConcernList
+          title="Under-planning"
+          hint={`plans under ${MIN_PLAN_LOAD_PCT}% of a ${WORKDAY_HOURS}h day`}
+          items={underPlanned.map((m) => ({
+            id: m.id,
+            name: m.name ?? m.email ?? "—",
+            team: m.team,
+            value: `${m.util.pct}%`,
+            detail:
+              m.util.perDayHours != null
+                ? `${fmtHours(m.util.perDayHours)}/day planned`
+                : `${fmtHours(m.util.plannedHours)} in window`,
+            tone: "#c0392b",
+          }))}
+          empty="Everyone is planning at or above the floor."
+          onFocus={() => onFocus("underplan")}
+        />
+        <ConcernList
+          title="Deferring most"
+          hint="tasks moved to a later day in this window"
+          items={deferrers.map((m) => ({
+            id: m.id,
+            name: m.name ?? m.email ?? "—",
+            team: m.team,
+            value: String(m.deferral.total),
+            detail: m.deferral.topCause
+              ? `mostly ${DEFERRAL_CAUSE_META[m.deferral.topCause].label.toLowerCase()}`
+              : "no cause given",
+            tone: "#c08a2d",
+          }))}
+          empty="No deferrals in the window."
+          onFocus={() => onFocus("deferrals")}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ConcernList({
+  title,
+  hint,
+  items,
+  empty,
+  onFocus,
+}: {
+  title: string;
+  hint: string;
+  items: { id: string; name: string; team: string | null; value: string; detail: string; tone: string }[];
+  empty: string;
+  onFocus: () => void;
+}) {
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-1.5">
+        <div>
+          <p className="text-[13px] font-semibold text-[#1c1a17]">{title}</p>
+          <p className="text-[11px] text-[#9c968d]">{hint}</p>
+        </div>
+        {items.length > 0 && (
+          <button
+            type="button"
+            onClick={onFocus}
+            className="text-[11px] text-[#3a6ea5] hover:underline shrink-0"
+          >
+            sort table →
+          </button>
+        )}
+      </div>
+      {items.length === 0 ? (
+        <p className="text-xs text-[#b0a99e] py-2">{empty}</p>
+      ) : (
+        <ul className="divide-y divide-[#f2eee7] border border-[#f2eee7] rounded-lg">
+          {items.map((it) => (
+            <li key={it.id} className="flex items-center gap-3 px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm text-[#1c1a17] truncate">{it.name}</p>
+                <p className="text-[11px] text-[#b0a99e] truncate">{it.team ?? "—"} · {it.detail}</p>
+              </div>
+              <span className="mono font-semibold text-sm shrink-0" style={{ color: it.tone }}>
+                {it.value}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
