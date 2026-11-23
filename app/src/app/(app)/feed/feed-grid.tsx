@@ -178,7 +178,7 @@ function Drawer({ row, onClose }: { row: FeedRow; onClose: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-label={`${name}'s day`}
-        className="relative w-full max-w-md bg-[#faf8f5] h-full overflow-y-auto shadow-xl animate-[slideIn_0.18s_ease-out]"
+        className="relative w-full sm:w-2/5 bg-[#faf8f5] h-full overflow-y-auto shadow-xl animate-[slideIn_0.18s_ease-out]"
       >
         <style>{`@keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
 
