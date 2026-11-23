@@ -24,10 +24,11 @@ case "${1:-}" in
     ;;
   stop)    docker compose down ;;
   restart) docker compose down && docker compose up -d ;;
+  reload)  docker compose up -d --build ;;   # rebuild image(s) + restart, picks up code changes
   logs)    docker compose logs -f "${2:-app}" ;;   # ./run.sh logs [service]
   status)  docker compose ps ;;
   *)
-    echo "Usage: $0 {start|stop|restart|logs|status}"
+    echo "Usage: $0 {start|stop|restart|reload|logs|status}"
     exit 1
     ;;
 esac

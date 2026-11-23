@@ -268,8 +268,8 @@ export default async function InsightsPage({
     }),
   );
 
-  const team = buildTeamInsights(memberInsights, allRows, allEvents, range.days);
   const categorySlices = categoryBreakdown(allRows, categoryNames, true);
+  const team = buildTeamInsights(memberInsights, allRows, allEvents, range.days, workingDays, categorySlices);
   // Per-person category split — same "where time goes" question, scoped to each
   // member so a manager sees who spends their time on what.
   const membersCategories = members.map((m) => ({

@@ -5,7 +5,10 @@ import { todayDate } from "@/lib/utils";
 import { hourLimits } from "@/lib/limits";
 import { minPlanHours } from "@/lib/task-status";
 import { buildCalendar, calendarGridStart } from "@/lib/work-calendar";
+import { categoryBreakdown } from "@/lib/insights";
 import { DashboardClient } from "./dashboard-client";
+
+const CATEGORY_KPI_DAYS = 90;
 
 // Personal self-reflection dashboard. The Cadence logo routes here for every
 // role — a private "how am I doing" view. Team/org aggregation lives in Insights
@@ -27,8 +30,10 @@ export default async function DashboardPage() {
   const reflectStart = new Date(today);
   reflectStart.setUTCDate(reflectStart.getUTCDate() - (REFLECT_DAYS - 1));
   const gridStart = calendarGridStart(today);
+  const kpiStart = new Date(today);
+  kpiStart.setUTCDate(kpiStart.getUTCDate() - (CATEGORY_KPI_DAYS - 1));
 
-  const [tasks, overdue, recent] = await Promise.all([
+  const [tasks, overdue, recent, doneRecent, categoryRows] = await Promise.all([
     prisma.dailyTask.findMany({
       where: { userId, date: today },
       orderBy: { createdAt: "asc" },
@@ -41,6 +46,11 @@ export default async function DashboardPage() {
       where: { userId, date: { gte: gridStart } },
       select: { date: true, estimatedHours: true, actualHours: true },
     }),
+    prisma.dailyTask.findMany({
+      where: { userId, status: "DONE", date: { gte: kpiStart }, actualHours: { gt: 0 } },
+      select: { categoryId: true, actualHours: true, estimatedHours: true, deferredToDate: true },
+    }),
+    prisma.taskCategory.findMany({ select: { id: true, name: true } }),
   ]);
 
   // Under-planned days: weekdays in the 14-day window where you planned SOMETHING
@@ -61,6 +71,21 @@ export default async function DashboardPage() {
   // Work calendar (worked vs planned per day) — shared with the Profile page.
   const { calendar, weeks } = buildCalendar(recent, today);
 
+  // Per-category avg time from your own completed work — "how long you typically
+  // take for a Bug" calibrates future estimates.
+  const categoryNames = new Map(categoryRows.map((c) => [c.id, c.name]));
+  const doneRows = doneRecent.map((t) => ({
+    categoryId: t.categoryId,
+    actualHours: t.actualHours,
+    estimatedHours: t.estimatedHours,
+    deferredToDate: t.deferredToDate ? t.deferredToDate.toISOString() : null,
+  }));
+  const categoryKpis = categoryBreakdown(doneRows, categoryNames, true).map((c) => ({
+    name: c.name,
+    avgHours: c.avg,
+    count: c.count,
+  }));
+
   return (
     <DashboardClient
       todayIso={today.toISOString()}
@@ -69,6 +94,8 @@ export default async function DashboardPage() {
       reflection={{ underPlannedDays, windowDays: REFLECT_DAYS, floorHours: floor }}
       calendar={JSON.parse(JSON.stringify(calendar))}
       weeks={JSON.parse(JSON.stringify(weeks))}
+      categoryKpis={categoryKpis}
+      categoryKpiDays={CATEGORY_KPI_DAYS}
     />
   );
 }

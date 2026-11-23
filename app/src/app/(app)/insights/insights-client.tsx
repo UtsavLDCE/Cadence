@@ -99,7 +99,38 @@ export function InsightsClient({
 
       {/* Team headline strip — level + weekly trend so a manager reads direction,
           not just a point-in-time number. */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 mb-[22px]">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-9 gap-3 mb-[22px]">
+        <Stat
+          label="Plan load"
+          value={team.util.planLoadPct != null ? `${team.util.planLoadPct}%` : "—"}
+          accent={
+            team.util.planLoadPct == null
+              ? "#b0a99e"
+              : team.util.planLoadPct < 60
+                ? "#c0392b"
+                : team.util.planLoadPct < 75
+                  ? "#c08a2d"
+                  : team.util.planLoadPct > 110
+                    ? "#c08a2d"
+                    : "#3f8a5b"
+          }
+          hint={
+            team.util.plannedHours === 0
+              ? "no plans yet"
+              : `${fmtHours(team.util.plannedHours)} of ${fmtHours(team.util.capacityHours)} @ ${WORKDAY_HOURS}h/day`
+          }
+          alert={team.util.planLoadPct != null && team.util.planLoadPct < 60}
+        />
+        <Stat
+          label="Team focus"
+          value={team.focus[0]?.pct != null ? `${Math.round(team.focus[0].pct)}%` : "—"}
+          accent="#1c1a17"
+          hint={
+            team.focus.length === 0
+              ? "no categorized work"
+              : team.focus.map((c) => `${c.name} ${Math.round(c.pct)}%`).join(" · ")
+          }
+        />
         <Stat
           label="Discipline"
           value={team.discipline.avgScore != null ? String(team.discipline.avgScore) : "—"}

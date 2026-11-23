@@ -592,6 +592,8 @@ export type TeamInsights = {
   chronicCount: number; // people with >=1 chronically-slipping task
   overloadedWip: number; // people over the WIP threshold
   capacityHours: number; // memberCount * WORKDAY_HOURS (one workday's worth)
+  util: Utilization; // team-wide plan-load vs (memberCount * workingDays * 8h)
+  focus: CategorySlice[]; // top categories the team is spending time on
   blocked: BlockedDependency[]; // cross-team dependencies the team waits on
   // Team discipline roll-up: average score, team-wide plan-submission rate, and
   // how many people sit in the concern band (score < 50).
@@ -603,6 +605,8 @@ export function buildTeamInsights(
   allTasks: InsightTaskRow[],
   allEvents: InsightEventRow[],
   windowDays: number = INSIGHTS_WINDOW_DAYS,
+  workingDays: number = 0,
+  focus: CategorySlice[] = [],
 ): TeamInsights {
   const estimate = estimateAccuracy(allTasks);
   const fire = firefighting(
@@ -622,6 +626,8 @@ export function buildTeamInsights(
     chronicCount: members.filter((m) => m.chronic.length > 0).length,
     overloadedWip: members.filter((m) => m.wip.inProgress >= WIP_THRESHOLD).length,
     capacityHours: members.length * WORKDAY_HOURS,
+    util: utilization(allTasks, members.length * workingDays),
+    focus: focus.slice(0, 3),
     blocked: blockedDependencies(allEvents),
     discipline: {
       avgScore: scored.length
