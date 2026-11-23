@@ -99,6 +99,7 @@ type Member = {
 
 // Self-reflection signals for the personal dashboard (what you're missing).
 type Reflection = { underPlannedDays: number; windowDays: number; floorHours: number };
+type CategoryKpi = { name: string; avgHours: number; count: number };
 
 type Props = {
   // Manager/org props are optional and unused by the live /dashboard route (it's
@@ -114,19 +115,21 @@ type Props = {
   reflection?: Reflection;
   calendar?: CalCell[];
   weeks?: WeekPoint[];
+  categoryKpis?: CategoryKpi[];
+  categoryKpiDays?: number;
 };
 
-export function DashboardClient({ isManager = false, scope = "org", todayIso, cutoffTime = "", myTasks, myOverdue, members = [], pendingTasks = [], reflection }: Props) {
+export function DashboardClient({ isManager = false, scope = "org", todayIso, cutoffTime = "", myTasks, myOverdue, members = [], pendingTasks = [], reflection, categoryKpis, categoryKpiDays }: Props) {
   const todayLabel = formatDate(new Date(todayIso));
 
-  if (!isManager) return <MemberView todayLabel={todayLabel} tasks={myTasks} overdue={myOverdue} reflection={reflection} />;
+  if (!isManager) return <MemberView todayLabel={todayLabel} tasks={myTasks} overdue={myOverdue} reflection={reflection} categoryKpis={categoryKpis} categoryKpiDays={categoryKpiDays} />;
 
   return <ManagerView todayLabel={todayLabel} todayIso={todayIso} cutoffTime={cutoffTime} members={members} pendingTasks={pendingTasks} scope={scope} />;
 }
 
 /* ---------------- Member ---------------- */
 
-function MemberView({ todayLabel, tasks, overdue, reflection }: { todayLabel: string; tasks: Task[]; overdue: Task[]; reflection?: Reflection }) {
+function MemberView({ todayLabel, tasks, overdue, reflection, categoryKpis, categoryKpiDays }: { todayLabel: string; tasks: Task[]; overdue: Task[]; reflection?: Reflection; categoryKpis?: CategoryKpi[]; categoryKpiDays?: number }) {
   const counts = countByStatus(tasks);
   const done = counts.DONE;
   const progress = tasks.length ? Math.round((done / tasks.length) * 100) : 0;
@@ -176,6 +179,24 @@ function MemberView({ todayLabel, tasks, overdue, reflection }: { todayLabel: st
         <StatCard label="In progress" value={String(counts.IN_PROGRESS)} accent={STATUS_META.IN_PROGRESS.hex} />
         <StatCard label="Overdue" value={String(overdue.length)} accent="#e0533a" />
       </div>
+
+      {categoryKpis && categoryKpis.length > 0 && (
+        <div className="mb-6">
+          <div className="flex items-baseline justify-between mb-3">
+            <h2 className="text-sm font-semibold text-[#2c2925]">Your typical time by category</h2>
+            <span className="mono text-[11px] text-[#b0a99e]">from completed work · last {categoryKpiDays ?? 90}d</span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+            {categoryKpis.map((c) => (
+              <div key={c.name} className="bg-white border border-[#ece8e1] rounded-xl px-4 py-3">
+                <p className="text-xs text-[#9c968d] truncate" title={c.name}>{c.name}</p>
+                <p className="mono text-xl font-semibold text-[#1c1a17] mt-1 leading-none">{fmtHours(c.avgHours)}</p>
+                <p className="text-[11px] text-[#b0a99e] mt-1">avg · {c.count} task{c.count === 1 ? "" : "s"}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card title="Today's status" className="lg:col-span-1">
