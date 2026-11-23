@@ -23,8 +23,10 @@ case "${1:-}" in
     echo "Cadence up → http://localhost:3000"
     ;;
   stop)    docker compose down ;;
-  restart) docker compose down && docker compose up -d ;;
-  reload)  docker compose up -d --build ;;   # rebuild image(s) + restart, picks up code changes
+  # restart rebuilds so code changes are always picked up — a plain down/up
+  # reuses the old image and silently serves stale code. reload is kept as an
+  # alias for the same thing.
+  restart|reload) docker compose up -d --build ;;
   logs)    docker compose logs -f "${2:-app}" ;;   # ./run.sh logs [service]
   status)  docker compose ps ;;
   *)

@@ -1,10 +1,11 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { todayDate, formatDate } from "@/lib/utils";
-import { fmtHours, minPlanHours, STATUS_META, PRIORITY_META, type TaskStatus, type Priority } from "@/lib/task-status";
+import { fmtHours, minPlanHours } from "@/lib/task-status";
 import { descendantUserIds } from "@/lib/org";
 import { hourLimits } from "@/lib/limits";
 import { FeedSearch } from "./feed-search";
+import { FeedGrid } from "./feed-grid";
 
 // Daily Feed — visible to everyone. Scope is self + direct reports (anyone whose
 // managerId is you); admin sees the whole org. One date, every in-scope user in
@@ -300,161 +301,9 @@ export default async function FeedPage({
         <FeedSearch />
       </div>
 
-      {/* Dense grid — one compact tile per person. Up to 4 across so ~12 fit on
-          one screen without scrolling. Task detail hides in a <details>. */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-        {rows.map((r) => (
-          <MemberCard key={r.user.id} row={r} workday={workdayHours} minPlan={minPlan} />
-        ))}
-      </div>
+      {/* Dense grid of compact tiles; click a tile to open the person's full day
+          in a drawer. Interactivity lives in the client FeedGrid. */}
+      <FeedGrid rows={rows} workday={workdayHours} minPlan={minPlan} />
     </div>
-  );
-}
-
-type Task = {
-  id: string;
-  title: string;
-  status: TaskStatus;
-  priority: Priority;
-  estimatedHours: number | null;
-  actualHours: number | null;
-  category?: { name: string } | null;
-};
-
-function MemberCard({
-  row,
-  workday,
-  minPlan,
-}: {
-  row: {
-    user: { id: string; name: string | null; email: string | null; role: string };
-    planned: Task[];
-    deferred: Task[];
-    unplanned: Task[];
-    done: Task[];
-    plannedHours: number;
-    plannedActual: number;
-    unplannedActual: number;
-    submitted: boolean;
-    goal: string | null;
-    hasStandup: boolean;
-    active: boolean;
-  };
-  workday: number;
-  minPlan: number;
-}) {
-  const { user, planned, deferred, unplanned, done, plannedHours, plannedActual, unplannedActual, submitted, goal, hasStandup, active } = row;
-  const name = user.name || user.email || "Unknown";
-
-  // Color the planned load only once the day is committed. Over the workday cap
-  // reads amber (over-committed); under the 60% floor reads red (under-planned).
-  const overplanned = submitted && plannedHours > workday;
-  const underplanned = submitted && plannedHours < minPlan;
-  const plannedCls = overplanned ? "text-[#c08a2d]" : underplanned ? "text-[#c0533a]" : "text-[#9c968d]";
-
-  const total = planned.length;
-  const pct = total > 0 ? Math.round((done.length / total) * 100) : 0;
-
-  return (
-    <div data-feed-name={name.toLowerCase()} className="bg-white rounded-xl border border-[#ece8e1] p-4 flex flex-col">
-      {/* Header: avatar · name/role · status dots */}
-      <div className="flex items-center gap-2.5">
-        <span className="w-8 h-8 shrink-0 rounded-full bg-[#efe9e1] text-[#8a8378] flex items-center justify-center font-semibold text-sm">
-          {name[0].toUpperCase()}
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-[#1c1a17] truncate">{name}</p>
-          <p className="mono text-[10px] tracking-[0.08em] text-[#b0a99e]">{user.role}</p>
-        </div>
-        <div className="flex items-center gap-1 shrink-0">
-          {submitted && <Dot title="Plan submitted" />}
-          {hasStandup && <Dot title="Standup done" />}
-        </div>
-      </div>
-
-      {goal && <p className="text-xs text-[#6b665f] mt-2 italic truncate" title={goal}>Goal: {goal}</p>}
-
-      {!active ? (
-        <p className="text-xs text-[#b0a99e] mt-3">Nothing logged.</p>
-      ) : (
-        <>
-          {/* Progress: done / planned + bar */}
-          <div className="mt-3">
-            <div className="flex items-baseline justify-between">
-              <span className="text-sm font-semibold text-[#1c1a17]">
-                {done.length}<span className="text-[#b0a99e] font-normal">/{total} done</span>
-              </span>
-              <span className="mono text-[11px] text-[#9c968d]">{pct}%</span>
-            </div>
-            <div className="mt-1 h-1.5 rounded-full bg-[#f0ece5] overflow-hidden">
-              <div className="h-full rounded-full bg-[#3f8a5b]" style={{ width: `${pct}%` }} />
-            </div>
-          </div>
-
-          {/* Compact stat line */}
-          <p className="mono text-[11px] text-[#9c968d] mt-2">
-            <span className={plannedCls}>{fmtHours(plannedHours || null)}</span> plan · {fmtHours(plannedActual || null)} act
-            {unplanned.length > 0 && ` · ⚡${unplanned.length}`}
-            {deferred.length > 0 && ` · ↪${deferred.length}`}
-          </p>
-
-          {/* Task detail hidden by default so the tile stays short. */}
-          {planned.length + unplanned.length > 0 && (
-            <details open className="mt-2 group">
-              <summary className="text-[11px] text-[#9c968d] cursor-pointer select-none hover:text-primary list-none">
-                <span className="group-open:hidden">▸ tasks</span>
-                <span className="hidden group-open:inline">▾ tasks</span>
-              </summary>
-              <ul className="mt-1.5 space-y-0.5">
-                {planned.map((t) => (
-                  <TaskRow key={t.id} task={t} />
-                ))}
-                {unplanned.map((t) => (
-                  <TaskRow key={t.id} task={t} unplanned />
-                ))}
-              </ul>
-            </details>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-function Dot({ title }: { title: string }) {
-  return <span title={title} className="w-2 h-2 rounded-full bg-[#3f8a5b]" />;
-}
-
-// One task line. Leading indicator is a green tick box when DONE, otherwise the
-// status dot. Trailing hours show actual once logged, else the estimate.
-function TaskRow({ task: t, unplanned }: { task: Task; unplanned?: boolean }) {
-  const done = t.status === "DONE";
-  return (
-    <li className="flex items-center gap-2 text-sm py-0.5">
-      {done ? (
-        <span className="w-4 h-4 shrink-0 rounded-full bg-[#3f8a5b] text-white flex items-center justify-center text-[10px] font-bold leading-none">
-          ✓
-        </span>
-      ) : (
-        <span className="w-4 h-4 shrink-0 rounded-full border-[1.5px] border-[#d5cec2] flex items-center justify-center">
-          <span className={`w-1.5 h-1.5 rounded-full ${STATUS_META[t.status].dot}`} />
-        </span>
-      )}
-      {unplanned && <span className="shrink-0 text-[11px]" title="Came up unplanned">⚡</span>}
-      <span className={`flex-1 truncate ${done ? "text-[#9c968d] line-through decoration-[#d5cec2]" : "text-[#2c2925]"}`}>
-        {t.title}
-      </span>
-      {t.category?.name && (
-        <span className="text-[10px] font-semibold rounded px-1.5 py-0.5 shrink-0 bg-indigo-100 text-indigo-700">
-          {t.category.name}
-        </span>
-      )}
-      <span className={`text-[10px] font-semibold rounded px-1.5 py-0.5 shrink-0 ${PRIORITY_META[t.priority].badge}`}>
-        {PRIORITY_META[t.priority].label}
-      </span>
-      <span className="mono text-[11px] text-[#b0a99e] shrink-0 w-20 text-right whitespace-nowrap">
-        {t.actualHours != null ? fmtHours(t.actualHours) : `est ${fmtHours(t.estimatedHours)}`}
-      </span>
-    </li>
   );
 }
