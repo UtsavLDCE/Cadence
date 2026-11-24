@@ -107,22 +107,10 @@ export async function PATCH(req: NextRequest) {
   }
 
   if (body.submit === true) {
-    // Hard gate: all previous-day tasks must be resolved (DONE / NOT_WORKED / deferred)
-    // before today's plan can be submitted. Prevents stale open work from piling up.
-    const openPrevious = await prisma.dailyTask.count({
-      where: {
-        userId: session.user.id,
-        date: { lt: today },
-        status: { in: ["TODO", "IN_PROGRESS", "HOLD"] },
-        deferredToDate: null,
-      },
-    });
-    if (openPrevious > 0) {
-      return NextResponse.json(
-        { error: `You have ${openPrevious} unresolved ${openPrevious === 1 ? "task" : "tasks"} from previous days. Mark each as Done or Not Worked before submitting today's plan.` },
-        { status: 400 },
-      );
-    }
+    // No previous-day gate: today's plan submits regardless of unfinished earlier
+    // tasks. Those stay open and keep surfacing in "My queue" tagged with the day
+    // they were planned ("pending from <date>") until done, not-worked, or carried
+    // forward — so a backlog never blocks today.
 
     // Backstop the 60%-of-workday minimum: sum today's plannable (non-deferred)
     // task estimates. Covers any client that skips the inline guard.

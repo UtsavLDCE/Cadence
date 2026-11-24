@@ -2195,8 +2195,11 @@ function OverdueRow({
             <span className={cn("text-[10px] font-semibold rounded px-1.5 py-0.5 shrink-0", PRIORITY_META[t.priority].badge)}>
               {PRIORITY_META[t.priority].label}
             </span>
-            <span className="text-[10px] font-semibold text-[#c08a2d] bg-[#f8f0dd] rounded px-1.5 py-0.5 shrink-0">
-              {daysLate}d overdue
+            <span
+              className="text-[10px] font-semibold text-[#c08a2d] bg-[#f8f0dd] rounded px-1.5 py-0.5 shrink-0"
+              title={`Planned ${new Date(t.date).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })}`}
+            >
+              pending from {new Date(t.date).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" })} · {daysLate}d
             </span>
             {t.status === "NOT_WORKED" && (
               <span className="text-[10px] font-semibold text-[#6b665f] bg-[#ece8e1] rounded px-1.5 py-0.5 shrink-0">
