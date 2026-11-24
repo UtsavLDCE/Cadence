@@ -30,7 +30,7 @@ export type FeedRow = {
 
 // Compact tile grid. A tile is a single summary (no inline task list) — clicking
 // it opens a drawer with that person's full day. Keeps ~12 people on one screen.
-export function FeedGrid({ rows, workday, minPlan }: { rows: FeedRow[]; workday: number; minPlan: number }) {
+export function FeedGrid({ rows, workday, minPlan, date }: { rows: FeedRow[]; workday: number; minPlan: number; date: string }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const selected = rows.find((r) => r.user.id === openId) ?? null;
 
@@ -54,7 +54,7 @@ export function FeedGrid({ rows, workday, minPlan }: { rows: FeedRow[]; workday:
         ))}
       </div>
 
-      {selected && <Drawer row={selected} onClose={() => setOpenId(null)} />}
+      {selected && <Drawer row={selected} date={date} onClose={() => setOpenId(null)} />}
     </>
   );
 }
@@ -166,10 +166,29 @@ function InlineTaskRow({ task: t, unplanned }: { task: Task; unplanned?: boolean
   );
 }
 
+type HistoryTask = Task & { date: string; unplanned: boolean; deferredToDate: string | null; deferredFromDate: string | null };
+type HistoryDay = { date: string; submitted: boolean; goal: string | null; tasks: HistoryTask[] };
+
 // Right-side slide-in drawer: one person's whole day. Overlay closes on click.
-function Drawer({ row, onClose }: { row: FeedRow; onClose: () => void }) {
+function Drawer({ row, date, onClose }: { row: FeedRow; date: string; onClose: () => void }) {
   const { user, planned, unplanned, deferred, done, plannedHours, plannedActual, unplannedActual, submitted, goal, hasStandup } = row;
   const name = user.name || user.email || "Unknown";
+
+  // Last 7 days loaded lazily — only for the person actually opened.
+  const [history, setHistory] = useState<HistoryDay[] | null>(null);
+  const [histError, setHistError] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    setHistory(null);
+    setHistError(false);
+    fetch(`/api/feed/history?userId=${encodeURIComponent(user.id)}&date=${encodeURIComponent(date)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => alive && setHistory(d.days))
+      .catch(() => alive && setHistError(true));
+    return () => {
+      alive = false;
+    };
+  }, [user.id, date]);
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -216,6 +235,8 @@ function Drawer({ row, onClose }: { row: FeedRow; onClose: () => void }) {
           <Section title="Planned" tasks={planned} empty="No planned tasks." />
           {unplanned.length > 0 && <Section title="Came up unplanned ⚡" tasks={unplanned} />}
           {deferred.length > 0 && <Section title="Deferred to a later day ↪" tasks={deferred} />}
+
+          <HistoryTimeline days={history} error={histError} selectedDate={date} />
         </div>
       </div>
     </div>
@@ -268,6 +289,77 @@ function TaskRow({ task: t }: { task: Task }) {
       <span className="mono text-[11px] text-[#b0a99e] shrink-0 w-16 text-right whitespace-nowrap">
         {t.actualHours != null ? fmtHours(t.actualHours) : `est ${fmtHours(t.estimatedHours)}`}
       </span>
+    </li>
+  );
+}
+
+// Last-7-days history timeline for the open person. Loaded lazily by the drawer.
+function HistoryTimeline({ days, error, selectedDate }: { days: HistoryDay[] | null; error: boolean; selectedDate: string }) {
+  return (
+    <div className="mt-5 pt-4 border-t border-[#ece8e1]">
+      <p className="text-xs font-semibold text-[#6b665f] mb-2 uppercase tracking-[0.04em]">Last 7 days</p>
+
+      {error ? (
+        <p className="text-xs text-[#c0533a]">Couldn&apos;t load history.</p>
+      ) : days === null ? (
+        <p className="text-xs text-[#b0a99e]">Loading…</p>
+      ) : (
+        <div className="space-y-3">
+          {days.map((d) => {
+            const dt = new Date(`${d.date}T00:00:00.000Z`);
+            const label = dt.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+            const plannedTasks = d.tasks.filter((t) => !t.unplanned && !t.deferredToDate);
+            const doneCount = d.tasks.filter((t) => t.status === "DONE").length;
+            return (
+              <div key={d.date} className={d.date === selectedDate ? "rounded-lg bg-[#f4efe8] -mx-2 px-2 py-1.5" : ""}>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-[#2c2925]">{label}</span>
+                  {d.date === selectedDate && <span className="text-[10px] text-[#9c968d]">· viewing</span>}
+                  {d.submitted ? (
+                    <span className="text-[10px] font-semibold rounded px-1.5 py-0.5 bg-[#e9f4ec] text-[#3f8a5b]">submitted</span>
+                  ) : d.tasks.length > 0 ? (
+                    <span className="text-[10px] font-semibold rounded px-1.5 py-0.5 bg-[#f8f0dd] text-[#c08a2d]">not submitted</span>
+                  ) : (
+                    <span className="text-[10px] font-semibold rounded px-1.5 py-0.5 bg-[#f0ece5] text-[#9c968d]">no plan</span>
+                  )}
+                  {d.tasks.length > 0 && (
+                    <span className="mono text-[10px] text-[#9c968d] ml-auto">{doneCount}/{plannedTasks.length} done</span>
+                  )}
+                </div>
+                {d.goal && <p className="text-[11px] text-[#6b665f] italic mt-0.5 line-clamp-1" title={d.goal}>{d.goal}</p>}
+                {d.tasks.length > 0 && (
+                  <ul className="mt-1 space-y-0.5">
+                    {d.tasks.map((t) => (
+                      <HistoryTaskRow key={t.id} task={t} />
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HistoryTaskRow({ task: t }: { task: HistoryTask }) {
+  const done = t.status === "DONE";
+  const deferredAway = Boolean(t.deferredToDate);
+  return (
+    <li className="flex items-center gap-1.5 text-xs">
+      <span className={`w-1.5 h-1.5 shrink-0 rounded-full ${done ? "bg-[#3f8a5b]" : STATUS_META[t.status].dot}`} />
+      {t.unplanned && <span className="shrink-0 text-[10px]" title="Came up unplanned">⚡</span>}
+      {t.deferredFromDate && (
+        <span className="shrink-0 text-[9px] font-semibold text-[#c08a2d]" title={`Carried from ${t.deferredFromDate.slice(0, 10)}`}>↻</span>
+      )}
+      <span
+        title={t.title}
+        className={`flex-1 min-w-0 truncate ${done ? "text-[#9c968d] line-through decoration-[#d5cec2]" : deferredAway ? "text-[#b0a99e]" : "text-[#2c2925]"}`}
+      >
+        {t.title}
+      </span>
+      <span className="mono text-[10px] text-[#b0a99e] shrink-0">{STATUS_META[t.status].label}</span>
     </li>
   );
 }

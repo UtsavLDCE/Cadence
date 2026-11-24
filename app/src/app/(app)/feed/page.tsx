@@ -303,7 +303,7 @@ export default async function FeedPage({
 
       {/* Dense grid of compact tiles; click a tile to open the person's full day
           in a drawer. Interactivity lives in the client FeedGrid. */}
-      <FeedGrid rows={rows} workday={workdayHours} minPlan={minPlan} />
+      <FeedGrid rows={rows} workday={workdayHours} minPlan={minPlan} date={dateStr} />
     </div>
   );
 }
